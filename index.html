@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Peak TOKYO ライブコマース分析（TikTok Shop）</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin:0; background:#f6f6f4; color:#1a1a1a; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif; font-size:14px; line-height:1.5; }
+.wrap { max-width:1160px; margin:0 auto; padding:18px 16px 60px; }
+header { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 16px; }
+h1 { font-size:19px; margin:0; font-weight:700; }
+.sub { color:#6b6b6b; font-size:12.5px; }
+.controls { margin:12px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+select,button,input { font-size:13px; padding:6px 12px; border:1px solid #d6d6d2; border-radius:8px; background:#fff; color:#1a1a1a; }
+input[type=date],input[type=number]{ padding:5px 8px; }
+button { cursor:pointer; } button.primary { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
+button.mini { padding:4px 10px; font-size:12px; }
+button:active { transform:translateY(1px); }
+.tabs { display:flex; gap:2px; flex-wrap:wrap; border-bottom:1px solid #e6e4df; margin:8px 0 18px; }
+.tab { padding:9px 14px; font-size:13px; font-weight:600; color:#6b6b6b; cursor:pointer; border-bottom:2px solid transparent; user-select:none; white-space:nowrap; }
+.tab.active { color:#1a1a1a; border-bottom-color:#1a1a1a; }
+.panel { display:none; } .panel.active { display:block; }
+.card { background:#fff; border:1px solid #eceae6; border-radius:14px; padding:16px 18px; margin-bottom:16px; box-shadow:0 1px 2px rgba(0,0,0,.03); }
+.card h2 { font-size:15px; margin:0 0 2px; font-weight:700; display:flex; align-items:center; gap:8px; }
+.card .desc { color:#8a8a8a; font-size:12px; margin:0 0 14px; }
+.kpis { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:16px; }
+.kpi { background:#fff; border:1px solid #eceae6; border-radius:14px; padding:13px 15px; }
+.kpi .label { color:#8a8a8a; font-size:11px; margin-bottom:5px; }
+.kpi .val { font-size:20px; font-weight:700; letter-spacing:-.5px; }
+.kpi .delta { font-size:11px; margin-top:3px; color:#9a9a9a; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.chartbox { position:relative; height:280px; }
+.chartbox.sm { height:240px; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th,td { text-align:right; padding:7px 8px; border-bottom:1px solid #f0efeb; white-space:nowrap; }
+th:first-child,td:first-child { text-align:left; white-space:normal; }
+th { color:#8a8a8a; font-weight:600; font-size:11.5px; border-bottom:1px solid #e6e4df; }
+th.sortable { cursor:pointer; user-select:none; } th.sortable:hover { color:#1a1a1a; }
+th .arrow { font-size:9px; color:#bbb; }
+tbody tr.click { cursor:pointer; } tbody tr:hover { background:#faf9f7; } tbody tr.sel { background:#eef5f0; }
+.hero { display:inline-block; font-size:10px; font-weight:700; color:#fff; background:#d4861f; border-radius:5px; padding:1px 6px; margin-left:6px; vertical-align:middle; }
+.callout { background:#fff7ec; border:1px solid #f3e3c6; border-radius:10px; padding:10px 14px; font-size:13px; margin-top:12px; }
+.callout b { color:#9a5b00; }
+.hl { background:#fff; border:1px solid #eceae6; border-radius:12px; padding:12px 14px; }
+.hl .t { font-size:11px; color:#8a8a8a; margin-bottom:4px; } .hl .v { font-size:15px; font-weight:700; } .hl .s { font-size:11.5px; color:#9a9a9a; margin-top:2px; }
+.ins { border:1px solid #d9e7de; background:#f3f7f4; border-radius:12px; padding:12px 14px; margin-bottom:10px; }
+.ins .h { font-weight:700; font-size:13.5px; margin-bottom:3px; color:#1d5b3a; }
+.ins .b { font-size:13px; } .ins .b b { color:#1a1a1a; }
+.loading { color:#9a9a9a; font-size:13px; padding:18px 0; text-align:center; }
+.err { color:#b3261e; font-size:12.5px; background:#fdecea; border:1px solid #f5c6c2; border-radius:8px; padding:10px 12px; }
+.scorebar { display:inline-block; height:8px; background:#d4861f; border-radius:4px; vertical-align:middle; }
+.muted { color:#9a9a9a; }
+.dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+.dot.ok{background:#2f9e5f;} .dot.load{background:#d4a017;} .dot.bad{background:#cc3b30;}
+.progress { font-size:12px; color:#8a8a8a; }
+.note { background:#f4f6f8; border:1px solid #dde3e8; border-radius:10px; padding:11px 14px; font-size:12.5px; color:#46525c; }
+.plan { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.plan label { font-size:12.5px; font-weight:700; display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+.plan textarea { width:100%; min-height:140px; resize:vertical; border:1px solid #e3e1dc; border-radius:10px; padding:10px 12px; font-family:inherit; font-size:13px; line-height:1.6; background:#fcfcfb; }
+.saved { font-size:11px; color:#9a9a9a; font-weight:400; }
+@media (max-width:860px){ .kpis{grid-template-columns:repeat(2,1fr);} .grid2{grid-template-columns:1fr;} .grid3{grid-template-columns:1fr;} .plan{grid-template-columns:1fr;} }
+.foot { color:#a0a0a0; font-size:11px; margin-top:24px; text-align:center; }
+@media print { .tabs,.controls{display:none!important;} .card,.kpi{break-inside:avoid;} body{background:#fff;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>Peak TOKYO ライブコマース分析</h1><span class="sub" id="storeSub">TikTok Shop連携 · ライブ（URL）</span></header>
+  <div class="controls">
+    <label for="period" class="sub">集計期間:</label>
+    <select id="period">
+      <option value="-30d">直近30日</option>
+      <option value="-90d" selected>直近90日</option>
+      <option value="-180d">直近180日</option>
+      <option value="-365d">直近365日</option>
+      <option value="custom">カスタム期間…</option>
+    </select>
+    <span id="customRange" style="display:none">
+      <input type="date" id="dFrom"> 〜 <input type="date" id="dTo">
+    </span>
+    <button class="primary" id="reloadBtn">↻ 再読み込み</button>
+    <button id="reportBtn">📄 レポート(PDF)</button>
+    <span class="progress" id="globalStatus"></span>
+  </div>
+  <div class="tabs" id="tabs">
+    <div class="tab active" data-tab="overview">概要・打ち手</div>
+    <div class="tab" data-tab="products">商品</div>
+    <div class="tab" data-tab="customers">顧客</div>
+    <div class="tab" data-tab="daily">日別売上</div>
+    <div class="tab" data-tab="timing">タイミング</div>
+    <div class="tab" data-tab="action">アクション</div>
+  </div>
+
+  <!-- OVERVIEW -->
+  <div class="panel active" id="panel-overview">
+    <div class="kpis" id="kpis">
+      <div class="kpi"><div class="label">総売上</div><div class="val" id="kpiSales">—</div></div>
+      <div class="kpi"><div class="label">注文数</div><div class="val" id="kpiOrders">—</div><div class="delta">有効注文（キャンセル/未払い除く）</div></div>
+      <div class="kpi"><div class="label">平均注文額 (AOV)</div><div class="val" id="kpiAov">—</div></div>
+      <div class="kpi"><div class="label">販売個数</div><div class="val" id="kpiUnits">—</div></div>
+      <div class="kpi"><div class="label">リピート購入率</div><div class="val" id="kpiRrr">—</div><div class="delta">期間内・参考値</div></div>
+    </div>
+    <div class="card">
+      <h2><span class="dot load" id="dotIns"></span>次の打ち手（データから自動提案）</h2>
+      <p class="desc">いまの数字から優先度の高いアクションを抽出します。</p>
+      <div id="insights"><div class="loading">分析中…</div></div>
+    </div>
+    <div class="card">
+      <h2>ハイライト</h2>
+      <div class="grid3" id="highlights">
+        <div class="hl"><div class="t">HERO SKU（売上トップ）</div><div class="v" id="hlHero">—</div><div class="s" id="hlHeroS"></div></div>
+        <div class="hl"><div class="t">販売個数トップ</div><div class="v" id="hlUnit">—</div><div class="s" id="hlUnitS"></div></div>
+        <div class="hl"><div class="t">最も売れる時間帯（JST）</div><div class="v" id="hlHour">—</div><div class="s" id="hlHourS"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRODUCTS -->
+  <div class="panel" id="panel-products">
+    <div class="card">
+      <h2><span class="dot load" id="dotProd"></span>商品別 売上分析</h2>
+      <p class="desc">選択期間の純売上・販売個数・注文数。TikTok Shop の注文明細(line_items)から集計しています。</p>
+      <div style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <input id="prodSearch" placeholder="🔍 商品名で検索…" style="width:240px">
+        <span class="muted" id="prodCount"></span>
+      </div>
+      <div id="prodBody"><div class="loading">読み込み中…</div></div>
+    </div>
+  </div>
+
+  <!-- CUSTOMERS -->
+  <div class="panel" id="panel-customers">
+    <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi"><div class="label">購入者数（期間内ユニーク）</div><div class="val" id="cUnique">—</div></div>
+      <div class="kpi"><div class="label">リピート購入者（2回+）</div><div class="val" id="cRepeat">—</div></div>
+      <div class="kpi"><div class="label">リピート購入率</div><div class="val" id="cRate">—</div></div>
+    </div>
+    <div class="card">
+      <h2>顧客分析について（TikTok Shop の制約）</h2>
+      <div class="note" id="custNote">
+        Shopify版の「顧客単価（LTV）／全期間リピート率／ロイヤル顧客ランキング」は、各顧客の<b>全期間の累計購入額・注文回数</b>を返す Shopify の顧客APIに依存していました。
+        TikTok Shop の Open API には同等の「顧客単位の累計」エンドポイントが無く、注文APIから<b>選択期間内のバイヤーID（user_id / マスク化メール）</b>で重複を見る形になります。
+        そのため上記は<b>選択期間内に限定した参考値</b>です。全期間LTV相当を出すには、長期間の注文を取得して内部で顧客台帳を構築する追加実装が必要です（次フェーズで対応可能）。
+      </div>
+    </div>
+  </div>
+
+  <!-- DAILY -->
+  <div class="panel" id="panel-daily">
+    <div class="card">
+      <h2><span class="dot load" id="dotDaily"></span>日別売上</h2>
+      <p class="desc">選択期間の日別の売上・注文数・販売個数。</p>
+      <div class="chartbox"><canvas id="dailyChart"></canvas></div>
+      <div id="dailyBody" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <!-- TIMING -->
+  <div class="panel" id="panel-timing">
+    <div style="margin-bottom:12px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+      <span><span class="sub">指標:</span> <span class="seg" id="timeMetric"><button data-m="orders" class="on">注文数</button><button data-m="sales">売上</button></span></span>
+    </div>
+    <div class="grid2">
+      <div class="card"><h2><span class="dot load" id="dotHour"></span>時間帯別（JST）</h2><div class="chartbox"><canvas id="hourChart"></canvas></div><div class="callout" id="hourCallout">—</div></div>
+      <div class="card"><h2><span class="dot load" id="dotDow"></span>曜日別（JST）</h2><div class="chartbox"><canvas id="dowChart"></canvas></div><div class="callout" id="dowCallout">—</div></div>
+    </div>
+  </div>
+
+  <!-- ACTION -->
+  <div class="panel" id="panel-action">
+    <div class="card">
+      <h2>📋 アクションプラン</h2>
+      <p class="desc">入力はこの端末のブラウザに自動保存され、次に開いても残ります。</p>
+      <div class="plan">
+        <div><label>今週のアクション <span class="saved" id="savedThis"></span></label><textarea id="thisWeek"></textarea></div>
+        <div><label>来週のアクション <span class="saved" id="savedNext"></span></label><textarea id="nextWeek"></textarea></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">データ提供: TikTok Shop (Peak TOKYO) · 開くたび／再読み込みのたびに最新データを取得します</div>
+</div>
+
+<script>
+const yen=n=>"¥"+Math.round(Number(n)||0).toLocaleString("ja-JP");
+const pct=n=>(Number(n)*100).toFixed(1)+"%";
+const num=n=>(Number(n)||0).toLocaleString("ja-JP");
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function setDot(id,s){const e=document.getElementById(id); if(e)e.className="dot "+s;}
+const DOW=["日","月","火","水","木","金","土"];
+let charts={}; function destroy(id){ if(charts[id]){try{charts[id].destroy();}catch(e){} delete charts[id];} }
+const PAL={new:"#2f6f4f",bar:"#3a7ca5",barHi:"#d4861f",rate:"#b3261e"};
+let DATA=null, timeMetric="orders";
+
+function getRange(){
+  const p=document.getElementById("period").value;
+  if(p==="custom"){ const s=document.getElementById("dFrom").value, e=document.getElementById("dTo").value; if(s&&e) return {since:s,until:e}; }
+  return {since:p,until:"today"};
+}
+
+async function loadAll(){
+  const gs=document.getElementById("globalStatus"); gs.textContent="読み込み中…";
+  ["dotIns","dotProd","dotDaily","dotHour","dotDow"].forEach(d=>setDot(d,"load"));
+  const R=getRange();
+  let res;
+  try{
+    const r=await fetch("/api/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"dashboard",since:R.since,until:R.until})});
+    res=await r.json();
+  }catch(e){ gs.textContent=""; document.getElementById("insights").innerHTML=`<div class="err">通信エラー: ${esc(String(e))}</div>`; return; }
+  if(res.error){ gs.textContent=""; document.getElementById("insights").innerHTML=`<div class="err">エラー: ${esc(res.error)}</div>`; ["dotIns","dotProd","dotDaily","dotHour","dotDow"].forEach(d=>setDot(d,"bad")); return; }
+  DATA=res;
+  document.getElementById("storeSub").textContent=`TikTok Shop連携 · ${esc(res.shop&&res.shop.name||"")} · ${esc(res.range.since)}〜${esc(res.range.until)}`;
+  gs.textContent=`取得注文 ${num(res.fetched)} 件`;
+  renderOverview(); renderProducts(); renderCustomers(); renderDaily(); renderTiming();
+}
+
+function renderOverview(){
+  const t=DATA.totals;
+  document.getElementById("kpiSales").textContent=yen(t.sales);
+  document.getElementById("kpiOrders").textContent=num(t.orders);
+  document.getElementById("kpiAov").textContent=yen(t.aov);
+  document.getElementById("kpiUnits").textContent=num(t.units)+"個";
+  const c=DATA.customers||{};
+  document.getElementById("kpiRrr").textContent=c.available?pct(c.repeatRate):"—";
+  // highlights
+  const p=DATA.products||[];
+  if(p[0]){ document.getElementById("hlHero").textContent=p[0].name; document.getElementById("hlHeroS").textContent="純売上 "+yen(p[0].net); }
+  const byU=p.slice().sort((a,b)=>b.units-a.units)[0];
+  if(byU){ document.getElementById("hlUnit").textContent=byU.name; document.getElementById("hlUnitS").textContent=num(byU.units)+"個"; }
+  const hrs=DATA.hours||[]; const topH=hrs.slice().sort((a,b)=>b.orders-a.orders)[0];
+  if(topH){ document.getElementById("hlHour").textContent=topH.hour+"時台"; document.getElementById("hlHourS").textContent=num(topH.orders)+"注文 / "+yen(topH.sales); }
+  // insights
+  const ins=[];
+  if(p[0]) ins.push({h:"主力商品に在庫・露出を厚く",b:`<b>${esc(p[0].name)}</b> が純売上トップ（${yen(p[0].net)}）。在庫切れと露出減を避け、ライブの主役に。`});
+  if(topH) ins.push({h:"売れる時間帯にライブを寄せる",b:`注文は <b>${topH.hour}時台（JST）</b> に最多。配信・クーポン投下をこの枠に合わせる。`});
+  const lowSellers=p.filter(x=>x.net>0).slice(-3).reverse();
+  if(lowSellers.length) ins.push({h:"売上貢献の小さい商品は整理 or 底上げ",b:`${lowSellers.map(x=>`<b>${esc(x.name)}</b>`).join("、")} は期間売上が小さい。セット販売・露出削減・値引きテストで効率改善。`});
+  if(c.available) ins.push({h:"リピート購入を増やす",b:`期間内のリピート購入率は <b>${pct(c.repeatRate)}</b>（購入者 ${num(c.unique)}人中 ${num(c.repeat)}人が2回+）。同梱フォロー・再入荷通知で2回目を後押し。`});
+  document.getElementById("insights").innerHTML=ins.map(i=>`<div class="ins"><div class="h">${i.h}</div><div class="b">${i.b}</div></div>`).join("")||`<div class="muted">データがありません。</div>`;
+  setDot("dotIns","ok");
+}
+
+let prodSort={key:"net",dir:-1};
+function renderProducts(){
+  const q=(document.getElementById("prodSearch").value||"").trim().toLowerCase();
+  let rows=(DATA.products||[]).filter(r=>!q||r.name.toLowerCase().includes(q));
+  const k=prodSort.key,dir=prodSort.dir; rows.sort((a,b)=>(a[k]<b[k]?-1:a[k]>b[k]?1:0)*dir);
+  document.getElementById("prodCount").textContent=`${rows.length}件`;
+  const arrow=key=>prodSort.key===key?(prodSort.dir<0?"▼":"▲"):"";
+  let h=`<table><thead><tr>
+    <th class="sortable" data-k="name">商品 <span class="arrow">${arrow("name")}</span></th>
+    <th class="sortable" data-k="net">純売上 <span class="arrow">${arrow("net")}</span></th>
+    <th class="sortable" data-k="units">販売個数 <span class="arrow">${arrow("units")}</span></th>
+    <th class="sortable" data-k="orders">注文数 <span class="arrow">${arrow("orders")}</span></th></tr></thead><tbody>`;
+  rows.slice(0,300).forEach((r,i)=>{ h+=`<tr><td>${esc(r.name)}${i===0&&prodSort.key==="net"&&prodSort.dir<0?'<span class="hero">売上1位</span>':''}</td><td>${yen(r.net)}</td><td>${num(r.units)}個</td><td>${num(r.orders)}</td></tr>`; });
+  document.getElementById("prodBody").innerHTML=h+`</tbody></table>`;
+  document.querySelectorAll('#prodBody th.sortable').forEach(th=>th.addEventListener("click",()=>{const key=th.dataset.k; if(prodSort.key===key)prodSort.dir*=-1; else{prodSort.key=key; prodSort.dir=key==="name"?1:-1;} renderProducts();}));
+  setDot("dotProd","ok");
+}
+
+function renderCustomers(){
+  const c=DATA.customers||{};
+  document.getElementById("cUnique").textContent=c.available?num(c.unique)+"人":"—";
+  document.getElementById("cRepeat").textContent=c.available?num(c.repeat)+"人":"—";
+  document.getElementById("cRate").textContent=c.available?pct(c.repeatRate):"—";
+}
+
+function renderDaily(){
+  const days=DATA.days||[];
+  const labels=days.map(d=>d.date.slice(5));
+  destroy("daily");
+  charts.daily=new Chart(document.getElementById("dailyChart"),{data:{labels,datasets:[
+    {type:"bar",label:"売上",data:days.map(d=>d.sales),backgroundColor:PAL.bar,borderRadius:3,yAxisID:"y"},
+    {type:"line",label:"注文数",data:days.map(d=>d.orders),borderColor:PAL.barHi,backgroundColor:PAL.barHi,borderWidth:2,tension:.3,yAxisID:"y1",pointRadius:2}
+  ]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{position:"bottom",labels:{boxWidth:12,font:{size:11}}}},
+    scales:{x:{grid:{display:false}},y:{beginAtZero:true,title:{display:true,text:"売上",font:{size:10}}},y1:{position:"right",beginAtZero:true,grid:{display:false},title:{display:true,text:"注文",font:{size:10}}}}}});
+  let h=`<table><thead><tr><th>日付</th><th>売上</th><th>注文</th><th>販売個数</th></tr></thead><tbody>`;
+  days.slice().reverse().slice(0,40).forEach(d=>{ h+=`<tr><td>${d.date}</td><td>${yen(d.sales)}</td><td>${num(d.orders)}</td><td>${num(d.units)}個</td></tr>`; });
+  document.getElementById("dailyBody").innerHTML=h+`</tbody></table>`;
+  setDot("dotDaily","ok");
+}
+
+function renderTiming(){
+  const hrs=DATA.hours||[], dows=DATA.dows||[];
+  const val=o=>timeMetric==="orders"?o.orders:o.sales;
+  const fmt=v=>timeMetric==="orders"?num(v):yen(v);
+  destroy("hour");
+  charts.hour=new Chart(document.getElementById("hourChart"),{type:"bar",data:{labels:hrs.map(h=>h.hour+"時"),datasets:[{label:timeMetric==="orders"?"注文数":"売上",data:hrs.map(val),backgroundColor:PAL.bar,borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{font:{size:9}}},y:{beginAtZero:true}}}});
+  const topH=hrs.slice().sort((a,b)=>val(b)-val(a))[0];
+  document.getElementById("hourCallout").innerHTML=topH?`最も多いのは <b>${topH.hour}時台</b>（${fmt(val(topH))}）。`:"—";
+  setDot("dotHour","ok");
+  destroy("dow");
+  charts.dow=new Chart(document.getElementById("dowChart"),{type:"bar",data:{labels:dows.map(d=>DOW[d.dow]),datasets:[{label:timeMetric==="orders"?"注文数":"売上",data:dows.map(val),backgroundColor:PAL.new,borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{beginAtZero:true}}}});
+  const topD=dows.slice().sort((a,b)=>val(b)-val(a))[0];
+  document.getElementById("dowCallout").innerHTML=topD?`最も多いのは <b>${DOW[topD.dow]}曜</b>（${fmt(val(topD))}）。`:"—";
+  setDot("dotDow","ok");
+}
+
+/* tabs */
+document.getElementById("tabs").addEventListener("click",e=>{ const t=e.target.closest(".tab"); if(!t)return;
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active")); t.classList.add("active");
+  document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active")); document.getElementById("panel-"+t.dataset.tab).classList.add("active"); });
+/* controls */
+document.getElementById("period").addEventListener("change",e=>{ document.getElementById("customRange").style.display=e.target.value==="custom"?"inline":"none"; });
+document.getElementById("reloadBtn").addEventListener("click",loadAll);
+document.getElementById("reportBtn").addEventListener("click",()=>window.print());
+document.getElementById("prodSearch").addEventListener("input",renderProducts);
+document.querySelectorAll('#timeMetric button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#timeMetric button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); timeMetric=b.dataset.m; if(DATA)renderTiming(); }));
+/* action plan local persistence */
+["thisWeek","nextWeek"].forEach(id=>{ const el=document.getElementById(id); const key="peak_tt_"+id;
+  el.value=localStorage.getItem(key)||""; el.addEventListener("input",()=>{ localStorage.setItem(key,el.value); document.getElementById(id==="thisWeek"?"savedThis":"savedNext").textContent="保存しました"; }); });
+
+loadAll();
+</script>
+</body>
+</html>
