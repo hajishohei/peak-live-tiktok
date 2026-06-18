@@ -102,7 +102,7 @@ tbody tr.click { cursor:pointer; } tbody tr:hover { background:#faf9f7; } tbody 
       <div class="kpi"><div class="label">注文数</div><div class="val" id="kpiOrders">—</div><div class="delta">有効注文（キャンセル/未払い除く）</div></div>
       <div class="kpi"><div class="label">平均注文額 (AOV)</div><div class="val" id="kpiAov">—</div></div>
       <div class="kpi"><div class="label">販売個数</div><div class="val" id="kpiUnits">—</div></div>
-      <div class="kpi"><div class="label">リピート購入率</div><div class="val" id="kpiRrr">—</div><div class="delta">期間内・参考値</div></div>
+      <div class="kpi"><div class="label">キャンセル数</div><div class="val" id="kpiCancel">—</div><div class="delta" id="kpiCancelD">期間内</div></div>
     </div>
     <div class="card">
       <h2><span class="dot load" id="dotIns"></span>次の打ち手（データから自動提案）</h2>
@@ -134,17 +134,35 @@ tbody tr.click { cursor:pointer; } tbody tr:hover { background:#faf9f7; } tbody 
 
   <!-- CUSTOMERS -->
   <div class="panel" id="panel-customers">
-    <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
-      <div class="kpi"><div class="label">購入者数（期間内ユニーク）</div><div class="val" id="cUnique">—</div></div>
-      <div class="kpi"><div class="label">リピート購入者（2回+）</div><div class="val" id="cRepeat">—</div></div>
-      <div class="kpi"><div class="label">リピート購入率</div><div class="val" id="cRate">—</div></div>
+    <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi"><div class="label">新規顧客数</div><div class="val" id="cNew">—</div><div class="delta">期間内に初回購入</div></div>
+      <div class="kpi"><div class="label">既存顧客数</div><div class="val" id="cExist">—</div><div class="delta">期間前に購入歴あり</div></div>
+      <div class="kpi"><div class="label">新規比率</div><div class="val" id="cNewRatio">—</div></div>
+      <div class="kpi"><div class="label">リピート購入率</div><div class="val" id="cRate">—</div><div class="delta">期間内に2回+</div></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h2><span class="dot load" id="dotNewEx"></span>新規 / 既存 顧客の構成</h2><div class="chartbox sm"><canvas id="newExistChart"></canvas></div></div>
+      <div class="card">
+        <h2>新規顧客の購入額</h2>
+        <p class="desc">期間内に初回購入した顧客が生んだ売上です。</p>
+        <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:0">
+          <div class="kpi"><div class="label">新規顧客の売上</div><div class="val" id="cNewSales">—</div></div>
+          <div class="kpi"><div class="label">新規のAOV</div><div class="val" id="cNewAov">—</div></div>
+          <div class="kpi"><div class="label">新規の販売個数</div><div class="val" id="cNewUnits">—</div></div>
+        </div>
+      </div>
     </div>
     <div class="card">
-      <h2>顧客分析について（TikTok Shop の制約）</h2>
-      <div class="note" id="custNote">
-        Shopify版の「顧客単価（LTV）／全期間リピート率／ロイヤル顧客ランキング」は、各顧客の<b>全期間の累計購入額・注文回数</b>を返す Shopify の顧客APIに依存していました。
-        TikTok Shop の Open API には同等の「顧客単位の累計」エンドポイントが無く、注文APIから<b>選択期間内のバイヤーID（user_id / マスク化メール）</b>で重複を見る形になります。
-        そのため上記は<b>選択期間内に限定した参考値</b>です。全期間LTV相当を出すには、長期間の注文を取得して内部で顧客台帳を構築する追加実装が必要です（次フェーズで対応可能）。
+      <h2>🆕 新規顧客が購入した商品</h2>
+      <p class="desc">期間内に初回購入した顧客が、その期間の注文で買った商品の集計（純売上の多い順）。新規が最初に手に取る"入口商品"の把握に。</p>
+      <div style="margin-bottom:10px"><input id="newProdSearch" placeholder="🔍 商品名で検索…" style="width:240px"></div>
+      <div id="newProdBody"><div class="loading">読み込み中…</div></div>
+    </div>
+    <div class="card">
+      <h2>判定方法と制約</h2>
+      <div class="note">
+        新規/既存は<b>直近400日の注文から各顧客の初回購入日を割り出し</b>、選択期間内が初回なら「新規」、期間前に購入歴があれば「既存」と判定しています（顧客識別は user_id / マスク化メール）。
+        400日より前の購入は遡れないため、運用初期ほど精度が高く、長期運用では初回が400日以前の人がごく一部「新規」に混じる可能性があります。
       </div>
     </div>
   </div>
@@ -224,8 +242,10 @@ function renderOverview(){
   document.getElementById("kpiOrders").textContent=num(t.orders);
   document.getElementById("kpiAov").textContent=yen(t.aov);
   document.getElementById("kpiUnits").textContent=num(t.units)+"個";
+  const cn=DATA.cancellations||{count:0,amount:0};
+  document.getElementById("kpiCancel").textContent=num(cn.count)+"件";
+  document.getElementById("kpiCancelD").textContent=cn.amount?("約"+yen(cn.amount)):"期間内";
   const c=DATA.customers||{};
-  document.getElementById("kpiRrr").textContent=c.available?pct(c.repeatRate):"—";
   // highlights
   const p=DATA.products||[];
   if(p[0]){ document.getElementById("hlHero").textContent=p[0].name; document.getElementById("hlHeroS").textContent="純売上 "+yen(p[0].net); }
@@ -262,11 +282,27 @@ function renderProducts(){
   setDot("dotProd","ok");
 }
 
+function renderNewProducts(){
+  const q=(document.getElementById("newProdSearch").value||"").trim().toLowerCase();
+  let np=(DATA.newCustomerProducts||[]).filter(r=>!q||r.name.toLowerCase().includes(q));
+  if(!np.length){ document.getElementById("newProdBody").innerHTML=`<div class="muted">この期間に新規顧客の購入はありません。</div>`; return; }
+  let h=`<table><thead><tr><th>商品</th><th>新規の純売上</th><th>販売個数</th><th>新規注文数</th></tr></thead><tbody>`;
+  np.slice(0,200).forEach((r,i)=>{ h+=`<tr><td>${esc(r.name)}${i===0&&!q?'<span class="hero">新規1位</span>':''}</td><td>${yen(r.net)}</td><td>${num(r.units)}個</td><td>${num(r.orders)}</td></tr>`; });
+  document.getElementById("newProdBody").innerHTML=h+`</tbody></table>`;
+}
 function renderCustomers(){
   const c=DATA.customers||{};
-  document.getElementById("cUnique").textContent=c.available?num(c.unique)+"人":"—";
-  document.getElementById("cRepeat").textContent=c.available?num(c.repeat)+"人":"—";
+  document.getElementById("cNew").textContent=c.available?num(c.newCount)+"人":"—";
+  document.getElementById("cExist").textContent=c.available?num(c.existingCount)+"人":"—";
+  document.getElementById("cNewRatio").textContent=c.available?pct(c.newRatio):"—";
   document.getElementById("cRate").textContent=c.available?pct(c.repeatRate):"—";
+  document.getElementById("cNewSales").textContent=yen(c.newSales||0);
+  document.getElementById("cNewAov").textContent=yen(c.newAov||0);
+  document.getElementById("cNewUnits").textContent=num(c.newUnits||0)+"個";
+  destroy("newExist");
+  charts.newExist=new Chart(document.getElementById("newExistChart"),{type:"doughnut",data:{labels:["新規","既存"],datasets:[{data:[c.newCount||0,c.existingCount||0],backgroundColor:[PAL.new,PAL.bar]}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{position:"bottom",labels:{boxWidth:12,font:{size:11}}}}}});
+  setDot("dotNewEx","ok");
+  renderNewProducts();
 }
 
 function renderDaily(){
@@ -309,6 +345,7 @@ document.getElementById("period").addEventListener("change",e=>{ document.getEle
 document.getElementById("reloadBtn").addEventListener("click",loadAll);
 document.getElementById("reportBtn").addEventListener("click",()=>window.print());
 document.getElementById("prodSearch").addEventListener("input",renderProducts);
+document.getElementById("newProdSearch").addEventListener("input",renderNewProducts);
 document.querySelectorAll('#timeMetric button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#timeMetric button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); timeMetric=b.dataset.m; if(DATA)renderTiming(); }));
 /* action plan local persistence */
 ["thisWeek","nextWeek"].forEach(id=>{ const el=document.getElementById(id); const key="peak_tt_"+id;
