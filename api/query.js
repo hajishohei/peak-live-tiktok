@@ -2,13 +2,10 @@
 // フロント public/index.html は POST /api/query を叩く。
 //
 // 署名アルゴリズム（公式 "Sign your API request" 準拠）:
-//   1. sign と access_token を除く全クエリパラメータを取得
-//   2. キーを辞書順ソート
-//   3. {key}{value} を連結
-//   4. 先頭に API パスを付与:  input = path + input
-//   5. Content-Type が multipart/form-data でなければ body(JSON文字列) を末尾に付与
-//   6. APP_SECRET で前後を包む:  input = secret + input + secret
-//   7. HMAC-SHA256(input, key=secret) → 16進小文字
+//   1. sign と access_token を除く全クエリパラメータを取得 → キーを辞書順ソート
+//   2. {key}{value} を連結し、先頭に API パスを付与
+//   3. multipart 以外なら body(JSON) を末尾に付与
+//   4. APP_SECRET で前後を包む → HMAC-SHA256 → 16進小文字
 import crypto from "crypto";
 
 const API_BASE = "https://open-api.tiktokglobalshop.com";
@@ -28,7 +25,6 @@ function buildQS(params) {
     .join("&");
 }
 
-// 1リクエスト分の TikTok Shop API 呼び出し
 async function callTT({ path, method = "GET", query = {}, bodyObj = null, env, shopCipher }) {
   const ts = Math.floor(Date.now() / 1000).toString();
   const params = { app_key: env.key, timestamp: ts, ...query };
@@ -64,21 +60,18 @@ async function getShop(env) {
   return cachedShop;
 }
 
-// 期間内の注文を全ページ取得（最大 80ページ × 100 = 8000件）
+// 指定期間 [ge, lt) の注文を全ページ取得（最大 120ページ × 100 = 12000件）
 async function fetchOrders(env, shopCipher, ge, lt) {
   const orders = [];
   let pageToken = "";
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 120; i++) {
     const query = { page_size: "100", sort_field: "create_time", sort_order: "ASC" };
     if (pageToken) query.page_token = pageToken;
     const bodyObj = { create_time_ge: ge, create_time_lt: lt };
     const j = await callTT({
       path: "/order/202309/orders/search",
       method: "POST",
-      query,
-      bodyObj,
-      env,
-      shopCipher,
+      query, bodyObj, env, shopCipher,
     });
     if (j.code !== 0) throw new Error("orders: " + (j.message || JSON.stringify(j)));
     const d = j.data || {};
@@ -89,70 +82,118 @@ async function fetchOrders(env, shopCipher, ge, lt) {
   return orders;
 }
 
+// 直近 LOOKBACK 日の注文をまとめて取得し、サーバー側に短時間キャッシュ。
+// → 期間切替・再読み込みはキャッシュ命中で一瞬になる（再取得は10分ごと）。
+const LOOKBACK_DAYS = 400;
+const ORDER_TTL_MS = 10 * 60 * 1000;
+let orderCache = null; // { key, ts, orders }
+async function getAllOrders(env, shopCipher) {
+  const now = Math.floor(Date.now() / 1000);
+  const ge = now - LOOKBACK_DAYS * 24 * 3600;
+  const lt = now + 24 * 3600;
+  if (orderCache && orderCache.key === shopCipher && Date.now() - orderCache.ts < ORDER_TTL_MS) {
+    return orderCache.orders;
+  }
+  const orders = await fetchOrders(env, shopCipher, ge, lt);
+  orderCache = { key: shopCipher, ts: Date.now(), orders };
+  return orders;
+}
+
 // JST(UTC+9) の日付・時刻
 function jst(unixSec) {
   const d = new Date((Number(unixSec) + 9 * 3600) * 1000);
   return { date: d.toISOString().slice(0, 10), hour: d.getUTCHours(), dow: d.getUTCDay() };
 }
-const EXCLUDE = new Set(["CANCELLED", "UNPAID"]); // 集計から除外する注文ステータス
+function buyerKey(o) { return o.user_id || o.buyer_email || null; }
+function orderAmount(o) { const p = o.payment || {}; return Number(p.total_amount || o.total_amount || 0) || 0; }
+const EXCLUDE = new Set(["CANCELLED", "UNPAID"]); // 売上集計から除外
 
-function aggregate(orders) {
-  const byProduct = {}; // name -> {net, units, orders:Set}
-  const byDay = {};     // date -> {sales, units, orders}
-  const byHour = {};    // 0-23 -> {sales, orders}
-  const byDow = {};     // 0-6  -> {sales, orders}
-  const buyers = {};    // buyerKey -> {orders, spent}
-  let sales = 0, count = 0, units = 0, currency = "JPY";
-  for (const o of orders) {
+// allOrders（広め取得）から、期間 [ge, lt) ぶんを集計。
+// 新規/既存は「各顧客の初回注文日」で判定（初回が期間内＝新規）。
+function aggregate(allOrders, ge, lt) {
+  // 1) 各バイヤーの初回（有効）注文時刻
+  const firstByBuyer = {};
+  for (const o of allOrders) {
     const status = o.status || o.order_status || "";
     if (EXCLUDE.has(status)) continue;
-    const pay = o.payment || {};
-    if (pay.currency) currency = pay.currency;
-    const amt = Number(pay.total_amount || o.total_amount || 0) || 0;
-    const t = jst(o.create_time);
+    const k = buyerKey(o); if (!k) continue;
+    const t = Number(o.create_time) || 0;
+    if (firstByBuyer[k] === undefined || t < firstByBuyer[k]) firstByBuyer[k] = t;
+  }
+  // 2) 期間スライスを集計
+  const byProduct = {}, byDay = {}, byHour = {}, byDow = {}, buyers = {}, newProd = {};
+  let sales = 0, count = 0, units = 0, currency = "JPY";
+  let cancelledCount = 0, cancelledAmt = 0;
+  let newSales = 0, newOrders = 0, newUnits = 0;
+  const newSet = new Set(), existSet = new Set();
+  for (const o of allOrders) {
+    const t0 = Number(o.create_time) || 0;
+    if (!(t0 >= ge && t0 < lt)) continue;
+    const status = o.status || o.order_status || "";
+    if (status === "CANCELLED") { cancelledCount += 1; cancelledAmt += orderAmount(o); continue; }
+    if (status === "UNPAID") continue;
+    const pay = o.payment || {}; if (pay.currency) currency = pay.currency;
+    const amt = orderAmount(o); const t = jst(o.create_time);
     sales += amt; count += 1;
-    const bkey = o.user_id || o.buyer_email || null;
-    if (bkey) { const b = buyers[bkey] || (buyers[bkey] = { orders: 0, spent: 0 }); b.orders += 1; b.spent += amt; }
+    const k = buyerKey(o);
+    let isNew = false;
+    if (k) {
+      const fb = firstByBuyer[k];
+      if (fb !== undefined && fb >= ge && fb < lt) { isNew = true; newSet.add(k); } else { existSet.add(k); }
+      const b = buyers[k] || (buyers[k] = { orders: 0, spent: 0 }); b.orders += 1; b.spent += amt;
+    }
     byDay[t.date] = byDay[t.date] || { sales: 0, units: 0, orders: 0 };
     byDay[t.date].sales += amt; byDay[t.date].orders += 1;
     byHour[t.hour] = byHour[t.hour] || { sales: 0, orders: 0 };
     byHour[t.hour].sales += amt; byHour[t.hour].orders += 1;
     byDow[t.dow] = byDow[t.dow] || { sales: 0, orders: 0 };
     byDow[t.dow].sales += amt; byDow[t.dow].orders += 1;
-    const items = o.line_items || [];
-    for (const li of items) {
-      units += 1;
-      byDay[t.date].units += 1;
+    if (isNew) { newSales += amt; newOrders += 1; }
+    for (const li of (o.line_items || [])) {
+      units += 1; byDay[t.date].units += 1;
       const name = li.product_name || li.sku_name || "(商品名なし)";
       const sp = Number(li.sale_price || 0) || 0;
       const p = byProduct[name] || (byProduct[name] = { net: 0, units: 0, _orders: new Set() });
       p.net += sp; p.units += 1; p._orders.add(o.id);
+      if (isNew) {
+        newUnits += 1;
+        const np = newProd[name] || (newProd[name] = { net: 0, units: 0, _orders: new Set() });
+        np.net += sp; np.units += 1; np._orders.add(o.id);
+      }
     }
   }
-  const products = Object.entries(byProduct)
+  const toArr = (m) => Object.entries(m)
     .map(([name, v]) => ({ name, net: v.net, units: v.units, orders: v._orders.size }))
     .sort((a, b) => b.net - a.net);
-  const days = Object.entries(byDay)
-    .map(([date, v]) => ({ date, ...v }))
-    .sort((a, b) => (a.date < b.date ? -1 : 1));
+  const products = toArr(byProduct);
+  const newCustomerProducts = toArr(newProd);
+  const days = Object.entries(byDay).map(([date, v]) => ({ date, ...v })).sort((a, b) => (a.date < b.date ? -1 : 1));
   const hours = Array.from({ length: 24 }, (_, h) => ({ hour: h, ...(byHour[h] || { sales: 0, orders: 0 }) }));
   const dows = Array.from({ length: 7 }, (_, d) => ({ dow: d, ...(byDow[d] || { sales: 0, orders: 0 }) }));
-  const buyerArr = Object.values(buyers);
-  const uniqueBuyers = buyerArr.length;
-  const repeatBuyers = buyerArr.filter((b) => b.orders >= 2).length;
+  const newCount = newSet.size, existingCount = existSet.size;
+  const totalCustomers = newCount + existingCount;
+  const repeatBuyers = Object.values(buyers).filter((b) => b.orders >= 2).length;
   const customers = {
-    available: uniqueBuyers > 0,
-    unique: uniqueBuyers,
+    available: totalCustomers > 0,
+    unique: totalCustomers,
     repeat: repeatBuyers,
-    repeatRate: uniqueBuyers ? repeatBuyers / uniqueBuyers : 0,
+    repeatRate: totalCustomers ? repeatBuyers / totalCustomers : 0,
+    newCount, existingCount,
+    newRatio: totalCustomers ? newCount / totalCustomers : 0,
+    newSales, newOrders, newUnits, newAov: newOrders ? newSales / newOrders : 0,
   };
-  return { currency, totals: { sales, orders: count, units, aov: count ? sales / count : 0 }, products, days, hours, dows, customers };
+  return {
+    currency,
+    totals: { sales, orders: count, units, aov: count ? sales / count : 0 },
+    cancellations: { count: cancelledCount, amount: cancelledAmt },
+    products, newCustomerProducts, days, hours, dows, customers,
+  };
 }
 
 // YYYY-MM-DD(JST) → unix秒。until は当日終端(+1日)。
 function toUnix(dateStr, endOfDay) {
   const d = new Date(dateStr + "T00:00:00Z");
-  let sec = Math.floor(d.getTime() / 1000) - 9 * 3600; // JST起点をUTC秒へ
+  let sec = Math.floor(d.getTime() / 1000) - 9 * 3600;
   if (endOfDay) sec += 24 * 3600;
   return sec;
 }
@@ -191,12 +232,13 @@ export default async function handler(req, res) {
       return;
     }
     const R = resolveRange(body && body.since, body && body.until);
-    const orders = await fetchOrders(env, shop.cipher, R.ge, R.lt);
-    const agg = aggregate(orders);
+    const allOrders = await getAllOrders(env, shop.cipher); // 10分キャッシュ
+    const agg = aggregate(allOrders, R.ge, R.lt);
     res.status(200).json({
       shop: { name: shop.name || env.store, region: shop.region || "JP" },
       range: { since: R.sinceStr, until: R.untilStr },
-      fetched: orders.length,
+      cached: !!(orderCache && Date.now() - orderCache.ts > 50),
+      fetchedAll: allOrders.length,
       ...agg,
     });
   } catch (e) {
