@@ -1,0 +1,7 @@
+{
+  "name": "peak-tokyo-tiktok-live-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Peak TOKYO ライブ売上ダッシュボード（TikTok Shop API・Vercel）",
+  "engines": { "node": ">=18" }
+}
