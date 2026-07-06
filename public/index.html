@@ -747,22 +747,37 @@ function showLoading(on){
     if(loadTimer){clearInterval(loadTimer); loadTimer=null;}
   }
 }
+// 全パネル共通のエラーバナー（エラーが概要タブにしか出ず他タブが「読み込み中…」のまま固まる問題の対策）
+function showGlobalError(msg){
+  const bar=document.getElementById("snapBar");
+  if(bar){ bar.style.display="block"; bar.style.background="#fdecea"; bar.style.border="1px solid #e0a59f"; bar.textContent="⚠ "+msg; }
+  const ins=document.getElementById("insights"); if(ins) ins.innerHTML=`<div class="err">${esc(msg)}</div>`;
+}
 async function loadAll(){
   const gs=document.getElementById("globalStatus"); gs.textContent="読み込み中…"; showLoading(true);
   ["dotIns","dotProd","dotDaily","dotHour","dotDow","dotNewEx","dotTrend"].forEach(d=>setDot(d,"load"));
   const R=getRange();
-  let res;
+  // render中に1つ例外が出ても showLoading(false) に必ず到達させる（無限オーバーレイ対策）
   try{
-    const r=await fetch("/api/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"dashboard",since:R.since,until:R.until,costOverrides:loadOvr(),manualCosts:loadManual(),assumeRate:loadRate()})});
-    res=await r.json();
-  }catch(e){ gs.textContent=""; showLoading(false); document.getElementById("insights").innerHTML=`<div class="err">通信エラー: ${esc(String(e))}</div>`; return; }
-  if(res.error){ gs.textContent=""; showLoading(false); document.getElementById("insights").innerHTML=`<div class="err">エラー: ${esc(res.error)}</div>`; ["dotIns","dotProd","dotDaily","dotHour","dotDow","dotNewEx","dotTrend"].forEach(d=>setDot(d,"bad")); return; }
-  DATA=res;
-  document.getElementById("storeSub").textContent=`TikTok Shop連携 · ${esc(res.shop&&res.shop.name||"")} · ${esc(res.range.since)}〜${esc(res.range.until)}`;
-  gs.textContent=`対象注文 ${num((res.totals&&res.totals.orders)||0)} 件 · ${((Date.now()-loadT0)/1000).toFixed(1)}秒`;
-  renderOverview(); renderProducts(); renderProductCancel(); renderCustomers(); renderDaily(); renderTiming(); renderTrends(); renderWoW(); renderStock(); renderProgress(); renderShifts(); renderSnapBar(); renderDowEfficiency(); renderHourEfficiency();
-  renderCmpList(); renderCmpPick(); renderCmpCompare();
-  showLoading(false);
+    let res;
+    try{
+      const r=await fetch("/api/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"dashboard",since:R.since,until:R.until,costOverrides:loadOvr(),manualCosts:loadManual(),assumeRate:loadRate()})});
+      res=await r.json();
+    }catch(e){ gs.textContent=""; showGlobalError("通信エラー: "+String(e)); return; }
+    if(res.error){ gs.textContent=""; showGlobalError("データ取得エラー: "+res.error); ["dotIns","dotProd","dotDaily","dotHour","dotDow","dotNewEx","dotTrend"].forEach(d=>setDot(d,"bad")); return; }
+    DATA=res;
+    document.getElementById("storeSub").textContent=`TikTok Shop連携 · ${esc(res.shop&&res.shop.name||"")} · ${esc(res.range.since)}〜${esc(res.range.until)}`;
+    gs.textContent=`対象注文 ${num((res.totals&&res.totals.orders)||0)} 件 · ${((Date.now()-loadT0)/1000).toFixed(1)}秒`;
+    // 各renderを個別に隔離: 1カードの失敗（Chart.js CDN不達等）で他の描画が止まらないように
+    // renderSnapBar は snapBar を初期化（非表示化）するため先頭で実行する。
+    // 後続のrender（renderOverviewの返金エラー警告等）が snapBar に出すエラーを消さないように。
+    const renders=[renderSnapBar,renderOverview,renderProducts,renderProductCancel,renderCustomers,renderDaily,renderTiming,renderTrends,renderWoW,renderStock,renderProgress,renderShifts,renderDowEfficiency,renderHourEfficiency,renderCmpList,renderCmpPick,renderCmpCompare];
+    let failed=0;
+    for(const fn of renders){ try{ fn(); }catch(err){ failed++; console.error("描画エラー("+(fn.name||"?")+"):",err); } }
+    if(failed) showGlobalError(`一部の表示（${failed}カード）でエラーが発生しました。詳細はブラウザのコンソールを確認してください。`);
+  } finally {
+    showLoading(false);
+  }
 }
 
 function renderOverview(){
@@ -782,8 +797,18 @@ function renderOverview(){
   document.getElementById("kpiCancelD").textContent=`${num(cn.units||0)}点・割合${pct(cn.rate||0)}／売上に未計上`;
   const ret=DATA.returns||{count:0,amount:0};
   const refEl=document.getElementById("kpiRefund");
-  if(refEl){ refEl.textContent=num(ret.count||0)+"件";
-    document.getElementById("kpiRefundD").textContent=(ret.count||0)?`返金 ${yen(ret.amount||0)}（売上から ${yk(refAmt)} 差引）`:"返品・返金済みなし"; }
+  const refErr=(DATA.refundInfo&&DATA.refundInfo.error)||null;
+  if(refEl){
+    if(refErr){
+      // 返金API失敗時は「返金なし」と区別して明示（売上が返金差引前で過大に出ている状態）
+      refEl.textContent="取得失敗";
+      document.getElementById("kpiRefundD").innerHTML=`<span style="color:#b3261e;font-weight:700">⚠ 返金データを取得できませんでした。売上は返金差引前の金額です</span>`;
+      showGlobalError("返金データの取得に失敗しました。売上KPIは返金差引前の金額で表示されています: "+refErr);
+    }else{
+      refEl.textContent=num(ret.count||0)+"件";
+      document.getElementById("kpiRefundD").textContent=(ret.count||0)?`返金 ${yen(ret.amount||0)}（売上から ${yk(refAmt)} 差引）`:"返品・返金済みなし";
+    }
+  }
   const c=DATA.customers||{};
   document.getElementById("kpiNewRatio").textContent=c.available?pct(c.newOrderRatio):"—";
   document.getElementById("kpiNewRatioD").textContent=c.available?`初回 ${num(c.firstOrders)} 件`:"初回注文 ÷ 注文数";

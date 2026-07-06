@@ -21,12 +21,32 @@ const NOISE_WORDS = [
   "人気アイテム", "人気商品", "売れ筋アイテム", "定番商品", "定番", "数量限定", "web限定特別価格", "web限定", "特別価格", "最終価格",
   "skypink東京", "skypink", "each東京", "each", "セール", "送料無料", "即納", "全2色", "全3色", "全4色",
   "春夏新作", "秋冬新作", "春新作", "秋新作", "春夏", "秋冬", "2024", "2025", "2026", "ss", "aw", "オケ", "オケージョン", "フォーマル", "セレモニー",
+  // シーズンコード連結形（"ss"/"aw"と年号が連結していると単語境界で除去できないため明示列挙）
+  "ss2024", "ss2025", "ss2026", "aw2024", "aw2025", "aw2026", "2024ss", "2025ss", "2026ss", "2024aw", "2025aw", "2026aw",
 ];
+// ノイズ語の除去パターン（モジュール読込時に1回だけ構築）。
+// - 英数字のみのノイズ語（each, ss, aw, 2025 等）は「単語境界」必須の正規表現で除去する。
+//   単純な部分文字列置換だと "peach"→"p"、"dress"→"dre"、品番中の"2025" まで破壊されるため。
+// - 日本語を含むノイズ語は従来どおり部分一致で除去（長い語を先に処理して「オケージョン」より先に「オケ」が当たる事故を防ぐ）。
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const NOISE_PATTERNS = NOISE_WORDS
+  .slice()
+  .sort((a, b) => b.length - a.length)
+  .map((w) => (/^[0-9a-z ]+$/.test(w)
+    ? { re: new RegExp(`(?<![0-9a-z])${escRe(w)}(?![0-9a-z])`, "g"), word: null }
+    : { re: null, word: w }));
+function stripNoise(t) {
+  for (const p of NOISE_PATTERNS) {
+    if (p.re) t = t.replace(p.re, " ");
+    else t = t.split(p.word).join(" ");
+  }
+  return t;
+}
 function normName(s) {
   let t = String(s || "").toLowerCase();
   t = t.replace(/[【《≪「（(\[].*?[】》≫」）)\]]/g, " "); // 括弧グループ除去
   t = t.replace(/[★☆◎●◆◇■□♪♡♥※→←／＼\/\\|・,，、。.！!？?＆&~〜ー\-_:：;；'"`]/g, " ");
-  for (const w of NOISE_WORDS) t = t.split(w).join(" ");
+  t = stripNoise(t);
   t = t.replace(/[\s　]+/g, ""); // 空白除去
   return t;
 }
