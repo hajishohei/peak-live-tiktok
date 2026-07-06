@@ -1,0 +1,30 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <g fill="none" stroke="#2b2b3f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- antenna -->
+    <line x1="50" y1="6" x2="50" y2="30"/>
+    <!-- outer legs (curved) -->
+    <path d="M46 31 C 41 50, 35 70, 15 93"/>
+    <path d="M54 31 C 59 50, 65 70, 85 93"/>
+    <!-- inner legs -->
+    <path d="M48 34 C 45 54, 42 73, 33 93"/>
+    <path d="M52 34 C 55 54, 58 73, 67 93"/>
+    <!-- horizontal platforms -->
+    <line x1="44.5" y1="33" x2="55.5" y2="33"/>
+    <line x1="41" y1="51" x2="59" y2="51"/>
+    <line x1="29" y1="74" x2="71" y2="74"/>
+    <line x1="13" y1="93" x2="87" y2="93"/>
+    <!-- top knob -->
+    <rect x="46.5" y="29" width="7" height="4.5" rx="1" fill="#2b2b3f"/>
+  </g>
+  <!-- 赤いアクセント（中央のラチス） -->
+  <g fill="none" stroke="#e8472b" stroke-width="2.6" stroke-linecap="round">
+    <path d="M44 51 L56 74 M56 51 L44 74"/>
+    <path d="M47 40 L53 40"/>
+  </g>
+  <!-- base feet -->
+  <g fill="#2b2b3f">
+    <rect x="11" y="91" width="9" height="5"/>
+    <rect x="45.5" y="91" width="9" height="5"/>
+    <rect x="80" y="91" width="9" height="5"/>
+  </g>
+</svg>

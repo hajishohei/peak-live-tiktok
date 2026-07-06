@@ -1,0 +1,1656 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>Peak TOKYO ライブコマース分析（TikTok Shop）</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin:0; background:#f6f6f4; color:#1a1a1a; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif; font-size:14px; line-height:1.5; }
+.wrap { max-width:1160px; margin:0 auto; padding:18px 16px 60px; }
+header { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 16px; }
+h1 { font-size:19px; margin:0; font-weight:700; }
+.sub { color:#6b6b6b; font-size:12.5px; }
+.controls { margin:12px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+select,button,input { font-size:13px; padding:6px 12px; border:1px solid #d6d6d2; border-radius:8px; background:#fff; color:#1a1a1a; }
+input[type=date],input[type=number]{ padding:5px 8px; }
+button { cursor:pointer; } button.primary { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
+button.mini { padding:4px 10px; font-size:12px; }
+button:active { transform:translateY(1px); }
+.tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid #e6e4df; margin:8px 0 20px; }
+.tab { padding:9px 15px; font-size:13px; font-weight:600; color:#6b6b6b; cursor:pointer; border-radius:9px 9px 0 0; border-bottom:2px solid transparent; user-select:none; white-space:nowrap; transition:background .12s,color .12s; }
+.tab:hover { background:#efeee9; color:#1a1a1a; }
+.tab.active { color:#1a1a1a; background:#fff; border:1px solid #e6e4df; border-bottom-color:#fff; margin-bottom:-1px; }
+.panel { display:none; } .panel.active { display:block; }
+.card { background:#fff; border:1px solid #eceae6; border-radius:14px; padding:18px 20px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+.card h2 { font-size:15px; margin:0 0 3px; font-weight:700; display:flex; align-items:center; gap:8px; }
+.card .desc { color:#7a7a7a; font-size:12px; margin:0 0 14px; line-height:1.6; }
+.kpis { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:14px; }
+.kpi { background:#fff; border:1px solid #eceae6; border-radius:14px; padding:13px 15px; transition:box-shadow .12s,transform .12s; }
+.kpi:hover { box-shadow:0 2px 8px rgba(0,0,0,.06); transform:translateY(-1px); }
+.kpi .label { color:#7a7a7a; font-size:11px; margin-bottom:5px; font-weight:600; letter-spacing:.2px; }
+.kpi .val { font-size:20px; font-weight:700; letter-spacing:-.5px; }
+.kpi .delta { font-size:11px; margin-top:4px; color:#8f8f8f; line-height:1.45; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.chartbox { position:relative; height:280px; }
+.chartbox.sm { height:240px; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th,td { text-align:right; padding:7px 8px; border-bottom:1px solid #f0efeb; white-space:nowrap; }
+th:first-child,td:first-child { text-align:left; white-space:normal; }
+th { color:#8a8a8a; font-weight:600; font-size:11.5px; border-bottom:1px solid #e6e4df; position:sticky; top:0; background:#fff; }
+th.sortable { cursor:pointer; user-select:none; border-bottom:1px dotted #c7c4bd; } th.sortable:hover { color:#1a1a1a; background:#f2f1ed; } th.sortable:hover .arrow{ color:#888; }
+th .arrow { font-size:9px; color:#c0bdb6; }
+tbody tr:nth-child(even) { background:#fafaf8; }
+tbody tr:hover { background:#f2f1ed; }
+.hero { display:inline-block; font-size:10px; font-weight:700; color:#fff; background:#d4861f; border-radius:5px; padding:1px 6px; margin-left:6px; vertical-align:middle; }
+.callout { background:#fff7ec; border:1px solid #f3e3c6; border-radius:10px; padding:10px 14px; font-size:13px; margin-top:12px; }
+.callout b { color:#9a5b00; }
+.hl { background:#fff; border:1px solid #eceae6; border-radius:12px; padding:12px 14px; }
+.hl .t { font-size:11px; color:#8a8a8a; margin-bottom:4px; } .hl .v { font-size:15px; font-weight:700; } .hl .s { font-size:11.5px; color:#9a9a9a; margin-top:2px; }
+.ins { border:1px solid #d9e7de; background:#f3f7f4; border-radius:12px; padding:12px 14px; margin-bottom:10px; }
+.ins .h { font-weight:700; font-size:13.5px; margin-bottom:3px; color:#1d5b3a; }
+.ins .b { font-size:13px; } .ins .b b { color:#1a1a1a; }
+.loading { color:#9a9a9a; font-size:13px; padding:18px 0; text-align:center; }
+.err { color:#b3261e; font-size:12.5px; background:#fdecea; border:1px solid #f5c6c2; border-radius:8px; padding:10px 12px; }
+.muted { color:#9a9a9a; }
+.dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+.dot.ok{background:#2f9e5f;} .dot.load{background:#d4a017;} .dot.bad{background:#cc3b30;}
+.progress { font-size:12px; color:#8a8a8a; }
+.note { background:#f4f6f8; border:1px solid #dde3e8; border-radius:10px; padding:11px 14px; font-size:12.5px; color:#46525c; }
+.seg { display:inline-flex; border:1px solid #d6d6d2; border-radius:8px; overflow:hidden; }
+.seg button { border:none; border-radius:0; background:#fff; padding:6px 12px; font-size:12.5px; }
+.seg button.on { background:#1a1a1a; color:#fff; }
+.morebtn { text-align:center; margin-top:10px; }
+.ratebar { display:inline-block; height:8px; background:#cc3b30; border-radius:4px; vertical-align:middle; margin-left:6px; }
+@media (max-width:860px){ .kpis{grid-template-columns:repeat(2,1fr);} .grid2{grid-template-columns:1fr;} .grid3{grid-template-columns:1fr;} }
+/* ===== モバイル最適化（スマホ幅・PC表示は不変） ===== */
+@media (max-width:640px){
+  body{ font-size:13.5px; }
+  .wrap{ padding:12px 10px 48px; }
+  h1{ font-size:17px; }
+  header{ gap:4px 10px; }
+  /* タブは折り返さず横スワイプ */
+  .tabs{ flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; gap:2px; scrollbar-width:none; }
+  .tabs::-webkit-scrollbar{ display:none; }
+  .tab{ padding:8px 11px; font-size:12.5px; }
+  /* KPIは常に2列（インラインの3〜5列指定も上書き） */
+  .kpis{ grid-template-columns:repeat(2,1fr)!important; gap:8px; margin-bottom:12px; }
+  .grid2,.grid3,.cmpgrid{ grid-template-columns:1fr!important; }
+  .card{ padding:14px 13px; border-radius:12px; margin-bottom:14px; }
+  .card h2{ font-size:14px; padding-right:24px; }
+  .card .desc{ font-size:11.5px; }
+  .kpi{ padding:10px 12px; }
+  .kpi .val{ font-size:18px; }
+  .kpi .label{ font-size:10.5px; }
+  .chartbox{ height:240px; } .chartbox.sm{ height:210px; }
+  /* 横長の表はスワイプで横スクロール（列は詰めない） */
+  .card table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap; }
+  .card table.cctbl{ table-layout:auto; }
+  .card td:first-child, .card th:first-child{ white-space:normal; }
+  th,td{ padding:6px 8px; font-size:12px; }
+  .controls{ gap:8px; }
+  .controls select,.controls button,.controls input{ font-size:12.5px; }
+  .sortbar{ gap:5px; } .sortpill{ padding:5px 10px; font-size:11.5px; }
+  .seg button{ padding:6px 10px; }
+  /* 顧客タブ等のドーナツを小さめに */
+  .chartbox.sm canvas{ max-height:210px; }
+}
+@media (max-width:400px){
+  .kpis{ grid-template-columns:1fr!important; }
+}
+.foot { color:#a0a0a0; font-size:11px; margin-top:24px; text-align:center; }
+#overlay { position:fixed; inset:0; background:rgba(246,246,244,.82); backdrop-filter:blur(2px); display:none; align-items:center; justify-content:center; z-index:9999; }
+#overlay.show { display:flex; }
+.ovcard { background:#fff; border:1px solid #eceae6; border-radius:16px; padding:26px 34px; box-shadow:0 8px 30px rgba(0,0,0,.10); text-align:center; min-width:260px; }
+.spin { width:34px; height:34px; border:3px solid #e6e4df; border-top-color:#1a1a1a; border-radius:50%; margin:0 auto 14px; animation:spin 0.8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.ovtitle { font-size:14px; font-weight:700; margin-bottom:4px; }
+.ovsub { font-size:12px; color:#8a8a8a; }
+.ovbar { height:4px; background:#eceae6; border-radius:3px; overflow:hidden; margin-top:14px; }
+.ovbar > i { display:block; height:100%; width:30%; background:#1a1a1a; border-radius:3px; animation:slide 1.3s ease-in-out infinite; }
+@keyframes slide { 0%{margin-left:-30%;} 100%{margin-left:100%;} }
+.btnload { opacity:.6; pointer-events:none; }
+@media print { .tabs,.controls,.morebtn{display:none!important;} .card,.kpi{break-inside:avoid;} body{background:#fff;} #overlay{display:none!important;} }
+.tmark { display:inline-block; width:9px; height:9px; border-radius:2px; background:#cc3b30; vertical-align:middle; margin-right:5px; }
+.cmpgrid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:10px; }
+.cmpbox { border:1px solid #eceae6; border-radius:10px; padding:10px 12px; }
+.cmpbox .t { font-size:11px; color:#8a8a8a; } .cmpbox .v { font-size:16px; font-weight:700; } .cmpbox .d { font-size:11.5px; margin-top:2px; }
+.up { color:#2f9e5f; } .down { color:#cc3b30; }
+/* アコーディオン（カード折りたたみ） */
+.panel > .card > h2 { cursor:pointer; position:relative; padding-right:26px; }
+.panel > .card > h2::after { content:"▾"; position:absolute; right:4px; top:50%; transform:translateY(-50%); color:#b0aca4; font-size:12px; transition:transform .15s; }
+.panel > .card.collapsed > h2::after { transform:translateY(-50%) rotate(-90deg); }
+.panel > .card.collapsed > *:not(h2) { display:none !important; }
+.panel > .card.collapsed > h2 { margin-bottom:0; }
+.acc-tools { display:flex; gap:8px; margin:0 0 10px; }
+.acc-tools button { font-size:11.5px; padding:4px 10px; }
+/* 期間比較 */
+.cmp-setup { display:flex; gap:14px; align-items:center; flex-wrap:wrap; background:#faf9f7; border:1px solid #eceae6; border-radius:12px; padding:12px 14px; }
+.cmp-col { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.cmp-tag { font-size:12px; font-weight:700; border-radius:7px; padding:4px 10px; }
+.cmptbl th, .cmptbl td { text-align:right; }
+.cmptbl th:first-child, .cmptbl td:first-child { text-align:left; }
+.cmptbl .secrow td { background:#f2f1ed; font-weight:700; color:#555; font-size:11.5px; }
+.cmptbl .mA { color:#1d5b3a; font-weight:600; } .cmptbl .mB { color:#2d4a86; font-weight:700; }
+.chg-up { color:#2f9e5f; font-weight:700; } .chg-down { color:#cc3b30; font-weight:700; } .chg-flat { color:#9a9a9a; }
+.sortbar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+.sortbar-label { font-size:12px; color:#6b6b6b; font-weight:600; margin-right:2px; }
+.sortpill { font-size:12px; padding:5px 12px; border:1px solid #d6d6d2; border-radius:16px; background:#fff; color:#444; cursor:pointer; transition:all .12s; }
+.sortpill:hover { background:#f2f1ed; border-color:#bdbab3; }
+.sortpill.on { background:#1a1a1a; color:#fff; border-color:#1a1a1a; font-weight:700; }
+.drillbtn { display:inline-block; font-size:11.5px; font-weight:600; color:#1a1a1a; background:#eceae6; border-radius:7px; padding:3px 10px; white-space:nowrap; transition:background .12s; }
+tr:hover .drillbtn { background:#dcd9d2; }
+tr.rowActive { background:#eef4f0 !important; }
+tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
+.cctbl { table-layout:fixed; }
+.cctbl td, .cctbl th { vertical-align:top; }
+.oid > summary { cursor:pointer; font-size:11.5px; color:#5a6b9a; list-style:none; white-space:nowrap; }
+.oid > summary::-webkit-details-marker { display:none; }
+.oid > div { font-size:11px; color:#777; margin-top:4px; word-break:break-all; }
+</style>
+</head>
+<body>
+<div id="overlay"><div class="ovcard"><div class="spin"></div><div class="ovtitle" id="ovTitle">最新データを取得中…</div><div class="ovsub" id="ovSub">TikTok Shop から注文を集計しています</div><div class="ovbar"><i></i></div></div></div>
+<div class="wrap">
+  <header><h1>Peak TOKYO ライブコマース分析</h1><span class="sub" id="storeSub">TikTok Shop連携 · ライブ（URL）</span></header>
+  <div class="controls">
+    <label for="period" class="sub">集計期間:</label>
+    <select id="period">
+      <option value="thismonth" selected>当月（今月1日〜今日）</option>
+      <option value="lastmonth">先月</option>
+      <option value="month">月を選ぶ…</option>
+      <option value="-7d">直近7日</option>
+      <option value="-30d">直近30日</option>
+      <option value="-90d">直近90日</option>
+      <option value="-180d">直近180日</option>
+      <option value="-365d">直近365日</option>
+      <option value="custom">カスタム期間…</option>
+    </select>
+    <span id="monthRange" style="display:none">
+      <input type="month" id="monthPick">
+    </span>
+    <span id="customRange" style="display:none">
+      <input type="date" id="dFrom"> 〜 <input type="date" id="dTo">
+    </span>
+    <button class="primary" id="reloadBtn">↻ 再読み込み</button>
+    <button id="reportBtn">📄 レポート(PDF)</button>
+    <span class="progress" id="globalStatus"></span>
+  </div>
+  <div id="snapBar" style="display:none;margin:0 0 10px;padding:8px 12px;border-radius:8px;font-size:12.5px"></div>
+  <div class="tabs" id="tabs">
+    <div class="tab active" data-tab="overview">概要・打ち手</div>
+    <div class="tab" data-tab="products">商品</div>
+    <div class="tab" data-tab="stock">原価・在庫</div>
+    <div class="tab" data-tab="customers">顧客</div>
+    <div class="tab" data-tab="trend">推移・施策効果</div>
+    <div class="tab" data-tab="daily">売上推移</div>
+    <div class="tab" data-tab="compare">期間比較</div>
+    <div class="tab" data-tab="timing">タイミング</div>
+    <div class="tab" data-tab="shift">配信シフト</div>
+    <div class="tab" data-tab="action">アクション</div>
+  </div>
+
+  <!-- OVERVIEW -->
+  <div class="panel active" id="panel-overview">
+    <div class="kpis" id="kpis">
+      <div class="kpi"><div class="label">売上</div><div class="val" id="kpiSales">—</div><div class="delta" id="kpiSalesD">返金完了分を差し引いた純額</div></div>
+      <div class="kpi"><div class="label">注文数</div><div class="val" id="kpiOrders">—</div><div class="delta">有効注文（キャンセル/未払い除く）</div></div>
+      <div class="kpi"><div class="label">平均注文額 (AOV)</div><div class="val" id="kpiAov">—</div><div class="delta">売上 ÷ 注文数</div></div>
+      <div class="kpi"><div class="label">販売個数</div><div class="val" id="kpiUnits">—</div></div>
+      <div class="kpi"><div class="label">発送前キャンセル</div><div class="val" id="kpiCancel">—</div><div class="delta" id="kpiCancelD">売上には未計上</div></div>
+    </div>
+    <div class="kpis" id="kpis2" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi"><div class="label">返品・返金済み</div><div class="val" id="kpiRefund" style="color:#cc3b30">—</div><div class="delta" id="kpiRefundD">売上から差引済</div></div>
+      <div class="kpi"><div class="label">新規購入割合</div><div class="val" id="kpiNewRatio">—</div><div class="delta" id="kpiNewRatioD">初回注文 ÷ 注文数</div></div>
+      <div class="kpi"><div class="label">リピート購入率</div><div class="val" id="kpiRepRate">—</div><div class="delta" id="kpiRepRateD">2回目以降 ÷ 注文数</div></div>
+      <div class="kpi"><div class="label">新規購入 / 既存購入</div><div class="val" id="kpiNewRep" style="font-size:16px">—</div><div class="delta">合計＝注文数</div></div>
+    </div>
+    <div class="kpis" id="kpis3" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi"><div class="label">粗利益（推定）</div><div class="val" id="kpiGP" style="color:#2f6f4f">—</div><div class="delta" id="kpiGPd">純売上 − 原価</div></div>
+      <div class="kpi"><div class="label">粗利率（推定）</div><div class="val" id="kpiGM">—</div><div class="delta">粗利 ÷ 純売上</div></div>
+      <div class="kpi"><div class="label">原価合計（推定）</div><div class="val" id="kpiCOGS">—</div><div class="delta">Σ(原価×販売個数)</div></div>
+      <div class="kpi"><div class="label">原価マッチ率</div><div class="val" id="kpiMatch">—</div><div class="delta" id="kpiMatchD">SD実原価で出せた商品の割合</div></div>
+    </div>
+    <div class="note" style="margin-bottom:12px;font-size:11.5px">
+      <b>売上</b>は、発送前キャンセルは元々未計上のため差し引かず、<b>返品・返金済みの金額だけ</b>を差し引いた純額です。<br>
+      <b>発送前キャンセル</b>＝注文がキャンセルされ発送に至らなかったもの（売上に未計上）。<b>返品・返金済み</b>＝発送後に返品/返金されたもの（売上計上→返金額を差引）。TTSセラーセンター「購入後分析」と同じ2区分です。<br>
+      <span style="color:#9a5b00">※ TTSの「合計商品数」は<b>商品点数</b>、当ダッシュボードのキャンセルは<b>注文件数</b>（点数も併記）。さらにTTSは<b>操作日</b>・期間6/1〜6/29、当方は<b>注文日</b>基準のため、件数は完全一致しません。</span><br>
+      <b>原価マッチ率</b>＝全商品のうち <b>SD（スーパーデリバリー）仕入れ実績の原価</b>で原価を出せた商品の割合。残りは <b>売値×<span id="rateNote">50</span>%</b> で仮定した<b>推定</b>です。マッチ率が高いほど粗利の精度が上がり、「原価・在庫」タブで対応付けを調整できます。
+    </div>
+    <div class="card">
+      <h2 id="progTitle">📈 当月の進捗</h2>
+      <p class="desc">表示中の期間の売上について、前月同日比と目標達成率を表示します。目標は月ごとに設定できます。</p>
+      <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+        <div class="kpi"><div class="label" id="progSalesLbl">期間売上</div><div class="val" id="progSales">—</div><div class="delta" id="progSalesD"></div></div>
+        <div class="kpi"><div class="label">前月同日比</div><div class="val" id="progMoM">—</div><div class="delta" id="progMoMd">前月の同じ日数と比較</div></div>
+        <div class="kpi"><div class="label">目標達成率</div><div class="val" id="progGoal">—</div><div class="delta" id="progGoalD">実績 ÷ 月間目標</div></div>
+        <div class="kpi"><div class="label">配信1時間あたり売上</div><div class="val" id="progPerHr">—</div><div class="delta" id="progPerHrD">期間売上 ÷ 配信時間</div></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;font-size:13px">
+        <label><span id="goalMonthLbl">今月</span>の売上目標：¥<input id="goalInput" type="number" min="0" step="10000" style="width:120px;padding:4px 6px"></label>
+        <button class="mini" id="goalSave">目標を保存</button>
+        <span class="muted" id="goalStatus"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2><span class="dot load" id="dotIns"></span>次の打ち手（データから自動提案）</h2>
+      <p class="desc">いまの数字から優先度の高いアクションを抽出します。</p>
+      <div id="insights"><div class="loading">分析中…</div></div>
+    </div>
+    <div class="card">
+      <h2>ハイライト</h2>
+      <div class="grid3" id="highlights">
+        <div class="hl"><div class="t">HERO SKU（売上トップ）</div><div class="v" id="hlHero">—</div><div class="s" id="hlHeroS"></div></div>
+        <div class="hl"><div class="t">販売個数トップ</div><div class="v" id="hlUnit">—</div><div class="s" id="hlUnitS"></div></div>
+        <div class="hl"><div class="t">最も売れる時間帯（JST）</div><div class="v" id="hlHour">—</div><div class="s" id="hlHourS"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRODUCTS -->
+  <div class="panel" id="panel-products">
+    <div class="card">
+      <h2><span class="dot load" id="dotProd"></span>商品別 売上分析</h2>
+      <p class="desc">選択期間の純売上・販売個数・注文数に加え、その商品を買った<b>新規顧客／既存顧客の人数</b>も表示。最初は上位10件、「続きを見る」で全件表示。</p>
+      <div style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <input id="prodSearch" placeholder="🔍 商品名で検索…" style="width:240px">
+        <span class="muted" id="prodCount"></span>
+      </div>
+      <div id="prodBody"><div class="loading">読み込み中…</div></div>
+    </div>
+    <div class="card">
+      <h2>⚠️ 商品別 キャンセル率（キャンセルされやすい商品）</h2>
+      <p class="desc">キャンセル率＝キャンセル明細 ÷（有効＋キャンセル明細）。率が高い順に表示し、在庫切れ・誤購入・品質などの点検対象を特定します。最初は上位10件。</p>
+      <div id="cancelBody"><div class="loading">読み込み中…</div></div>
+    </div>
+  </div>
+
+  <!-- CUSTOMERS -->
+  <div class="panel" id="panel-customers">
+    <div class="note" style="margin-bottom:12px">
+      <b>注文ベース</b>＝注文1件ずつを「初回購入（新規）」か「2回目以降（既存・リピート）」に振り分け。<b>新規購入 ＋ 既存購入 ＝ 注文数</b> で一致します。
+      同じ人が期間内に1回目＋2回目＋3回目と買った場合は <b>新規1・既存2</b> と数えます。
+    </div>
+    <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi"><div class="label">注文数</div><div class="val" id="cOrders">—</div><div class="delta">＝新規購入＋既存購入</div></div>
+      <div class="kpi"><div class="label">新規購入（初回注文）</div><div class="val" id="cFirst" style="color:#2f6f4f">—</div><div class="delta" id="cFirstD">新規購入割合</div></div>
+      <div class="kpi"><div class="label">既存購入（2回目以降）</div><div class="val" id="cRepeatOrders">—</div><div class="delta" id="cRepeatD">リピート購入率</div></div>
+      <div class="kpi"><div class="label">リピート購入率</div><div class="val" id="cRate">—</div><div class="delta">2回目以降 ÷ 注文数</div></div>
+    </div>
+    <div style="font-size:11.5px;color:#8a8a8a;margin:-4px 0 10px">参考（実人数・ユニーク）</div>
+    <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi"><div class="label">新規顧客数（人）</div><div class="val" id="cNew">—</div><div class="delta">期間内に初回購入した実人数</div></div>
+      <div class="kpi"><div class="label">既存顧客数（人）</div><div class="val" id="cExist">—</div><div class="delta">期間前に購入歴あり</div></div>
+      <div class="kpi"><div class="label">新規比率（人数）</div><div class="val" id="cNewRatio">—</div><div class="delta">新規 ÷ 実人数</div></div>
+    </div>
+    <div class="card">
+      <h2>🚫 発送前キャンセルの顧客分析</h2>
+      <p class="desc">この期間の<b>発送前キャンセル</b>を「新規／既存」で分類し、月内に2回以上キャンセルした顧客を抽出します。購入者名・TikTok ID・該当注文IDを表示するので、セラーセンターで照合・対応できます。<span class="muted">（名前は受取人名から取得。デプロイ後の新しい注文から表示され、過去分は名前が空になる場合があります）</span></p>
+      <div class="kpis" style="grid-template-columns:repeat(4,1fr);margin:0 0 10px">
+        <div class="kpi"><div class="label">キャンセル件数</div><div class="val" id="ccCount">—</div><div class="delta" id="ccRate">キャンセル率</div></div>
+        <div class="kpi"><div class="label">新規のキャンセル</div><div class="val" id="ccNew" style="color:#cc3b30">—</div><div class="delta" id="ccNewR">新規割合</div></div>
+        <div class="kpi"><div class="label">既存のキャンセル</div><div class="val" id="ccExist">—</div><div class="delta" id="ccExistR">既存割合</div></div>
+        <div class="kpi"><div class="label">2回以上キャンセルした顧客</div><div class="val" id="ccRepeat" style="color:#cc3b30">—</div><div class="delta" id="ccRepeatD">要注意顧客</div></div>
+      </div>
+      <div id="ccBody"></div>
+    </div>
+    <div class="card">
+      <h2>🔄 発送後返品の顧客分析</h2>
+      <p class="desc"><b>発送後に返品・返金</b>された注文を購入者ごとに集計。<b>今月の返品回数</b>と<b>累計の返品回数</b>（取得範囲=直近約400日）を出すので、返品が多い顧客を特定できます。<span class="muted">氏名＝受取人名（TikTokの仕様でマスクされる／取れない場合あり）。@ユーザー名はAPIから取得できないため、TikTokの内部ID（数値）を併記します。</span></p>
+      <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:0 0 10px">
+        <div class="kpi"><div class="label">返品件数（今月）</div><div class="val" id="rcOrders" style="color:#cc3b30">—</div><div class="delta">発送後の返品・返金</div></div>
+        <div class="kpi"><div class="label">返品した顧客（今月）</div><div class="val" id="rcBuyers">—</div><div class="delta">実人数</div></div>
+        <div class="kpi"><div class="label">2回以上返品した顧客（今月）</div><div class="val" id="rcRepeat" style="color:#cc3b30">—</div><div class="delta">要注意顧客</div></div>
+      </div>
+      <div id="rcBody"></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h2><span class="dot load" id="dotNewEx"></span>新規 / 既存 顧客の構成</h2><div class="chartbox sm"><canvas id="newExistChart"></canvas></div></div>
+      <div class="card">
+        <h2>新規顧客の購入額</h2>
+        <p class="desc"><b>「1注文あたり」</b>＝注文1件の金額。<b>「1人あたり」</b>＝その人が期間中に使った合計（同じ人が2回買えば合算・リピート込み）。混同しやすいので分けて表示します。<span class="muted">中央値＝真ん中の人の値で、外れ値（高額購入）の影響を受けにくい代表値。</span></p>
+        <div style="font-size:12px;font-weight:700;color:#1d5b3a;margin:4px 0 6px">① 1注文あたり（注文1件の金額）</div>
+        <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:0 0 12px">
+          <div class="kpi" style="background:#f3f7f4;border-color:#cfe3d6"><div class="label">新規 1注文あたり 平均</div><div class="val" id="cNewAov" style="color:#1d5b3a">—</div><div class="delta">新規売上 ÷ 新規注文数</div></div>
+          <div class="kpi" style="background:#f3f7f4;border-color:#cfe3d6"><div class="label">新規 1注文あたり 中央値</div><div class="val" id="cNewOrderMed" style="color:#1d5b3a">—</div><div class="delta">注文額の真ん中</div></div>
+          <div class="kpi"><div class="label">新規の販売個数</div><div class="val" id="cNewUnits">—</div><div class="delta">新規注文の合計点数</div></div>
+        </div>
+        <div style="font-size:12px;font-weight:700;color:#555;margin:4px 0 6px">② 1人あたり（その人の期間合計・リピート込み）</div>
+        <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:0">
+          <div class="kpi"><div class="label">新規 1人あたり 平均</div><div class="val" id="cNewCustAvg">—</div><div class="delta" id="cNewCustN">—</div></div>
+          <div class="kpi"><div class="label">新規 1人あたり 中央値</div><div class="val" id="cNewCustMed">—</div><div class="delta">1人の合計額の真ん中</div></div>
+          <div class="kpi"><div class="label">新規顧客の売上（全体）</div><div class="val" id="cNewSales">—</div><div class="delta">新規の売上合計</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🎯 新規顧客の獲得に効く商品（示唆）</h2>
+      <p class="desc">新規顧客が実際に「最初に買った」商品から、獲得に効く商品と特徴を示します。<b>既存商品なら</b>下位表の上位を新規向けライブの主役に。<b>新規で仕入れるなら</b>下の「効く特徴」に近い価格帯・ブランドを狙うのが有効です。</p>
+      <div id="acqSummary" class="kpis" style="grid-template-columns:repeat(3,1fr);margin:0 0 10px"></div>
+      <div id="acqInsight" style="margin:0 0 12px"></div>
+      <div id="acqBody"></div>
+    </div>
+    <div class="card">
+      <h2>🆕 新規顧客が購入した商品</h2>
+      <p class="desc">期間内に初回購入した顧客が、その注文で買った商品（純売上の多い順）。新規が最初に手に取る"入口商品"の把握に。最初は上位10件。</p>
+      <div style="margin-bottom:10px"><input id="newProdSearch" placeholder="🔍 商品名で検索…" style="width:240px"></div>
+      <div id="newProdBody"><div class="loading">読み込み中…</div></div>
+    </div>
+    <div class="card">
+      <h2>🔁 リピーター（2回目以降）の購入</h2>
+      <p class="desc">2回目以降の購入（注文単位）の集計。期間を切り替えると、その期間のリピート購入だけを見られます。リピーターが"次に買う"商品と単価の把握に。最初は上位10件。</p>
+      <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+        <div class="kpi"><div class="label">リピート購入の売上</div><div class="val" id="cRepSales">—</div></div>
+        <div class="kpi"><div class="label">リピートのAOV</div><div class="val" id="cRepAov">—</div></div>
+        <div class="kpi"><div class="label">リピートの販売個数</div><div class="val" id="cRepUnits">—</div></div>
+      </div>
+      <div style="margin:12px 0 10px"><input id="repProdSearch" placeholder="🔍 商品名で検索…" style="width:240px"></div>
+      <div id="repProdBody"><div class="loading">読み込み中…</div></div>
+    </div>
+    <div class="card">
+      <h2>判定方法と制約</h2>
+      <div class="note">
+        新規/既存は<b>直近400日の注文から各顧客の初回購入日を割り出し</b>、選択期間内が初回なら「新規」、期間前に購入歴があれば「既存」と判定（顧客識別は user_id / マスク化メール）。
+        「リピート（2回目以降）」は各注文がその顧客にとって何回目かで判定します。400日より前の購入は遡れないため、運用初期ほど精度が高くなります。
+      </div>
+    </div>
+  </div>
+
+  <!-- TREND -->
+  <div class="panel" id="panel-trend">
+    <div class="card">
+      <h2><span class="dot load" id="dotTrend"></span>新規購入者・売上の推移</h2>
+      <p class="desc">取得済みの全期間（直近約400日）を対象に集計します。上の集計期間の切替に関係なく、推移はそのまま見られます。施策を登録すると、グラフ上に縦線で表示され、施策前後の変化を比較できます。</p>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <span><span class="sub">単位:</span> <span class="seg" id="trendUnit"><button data-u="weekly" class="on">週次</button><button data-u="monthly">月次</button></span></span>
+        <span><span class="sub">指標:</span> <span class="seg" id="trendMetric"><button data-m="newBuyers" class="on">新規購入者</button><button data-m="sales">売上</button><button data-m="orders">注文数</button></span></span>
+        <span class="muted" id="trendNote"></span>
+      </div>
+      <div class="chartbox"><canvas id="trendChart"></canvas></div>
+      <div id="trendBody" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <h2>📊 前週比（週次サマリ）</h2>
+      <p class="desc">「先週」と「先々週」の確定値どうしを比べた前週比です。今週は集計途中の可能性があるため、参考値として併記します（週は月曜始まり・JST）。</p>
+      <div id="wowBody"><div class="loading">読み込み中…</div></div>
+    </div>
+
+    <div class="card">
+      <h2>🚩 施策タイミングの登録</h2>
+      <p class="desc">施策を打った日と内容を登録すると、上の推移グラフ・日別グラフに縦線で表示されます。この端末のブラウザに保存されます。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+        <div style="display:flex;flex-direction:column;gap:3px"><label class="sub">実施日</label><input type="date" id="cmpDate"></div>
+        <div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:3px"><label class="sub">施策内容</label><input id="cmpText" placeholder="例）新規向けクーポン配布／インフルエンサーライブ"></div>
+        <button class="primary" id="cmpAdd">＋ 登録</button>
+      </div>
+      <div id="cmpList"></div>
+    </div>
+
+    <div class="card">
+      <h2>📈 施策の前後比較（ビフォーアフター）</h2>
+      <p class="desc">登録した施策を選び、実施日の前後で売上・新規購入者・注文数がどう変わったかを比較します（日別データで算出）。</p>
+      <div style="display:flex;gap:14px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
+        <div style="display:flex;flex-direction:column;gap:3px"><label class="sub">施策</label><select id="cmpPick" style="min-width:240px"></select></div>
+        <span><span class="sub">比較幅:</span> <span class="seg" id="cmpWin"><button data-w="7" class="on">前後7日</button><button data-w="14">前後14日</button><button data-w="30">前後30日</button></span></span>
+      </div>
+      <div id="cmpCompare"><div class="muted">施策を登録すると比較を表示します。</div></div>
+    </div>
+  </div>
+
+  <!-- DAILY -->
+  <div class="panel" id="panel-daily">
+    <div class="card">
+      <h2><span class="dot load" id="dotDaily"></span>売上推移（日 / 週 / 月）× ばーびー配信時間</h2>
+      <p class="desc">売上（棒）に <b>ばーびー(@.choice2)の配信時間</b>（右軸の折れ線）を重ねて、配信×売上の相関を見られます。<b>表の行をクリック</b>でその期間の売れ筋商品を表示。</p>
+      <div style="margin-bottom:10px"><span class="sub">単位:</span> <span class="seg" id="dailyUnit"><button data-u="day" class="on">日別</button><button data-u="week">週別</button><button data-u="month">月別</button></span></div>
+      <div id="liveSummary" class="kpis" style="grid-template-columns:repeat(5,1fr);margin-bottom:8px"></div>
+      <div id="liveNote" class="note" style="margin-bottom:10px;font-size:11.5px"></div>
+      <details style="margin-bottom:10px">
+        <summary style="cursor:pointer;color:#555;font-size:12.5px">＋ ばーびーの配信時間を手動で追加（日次）</summary>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:13px">
+          <input type="date" id="liveAddDate">
+          <input type="number" id="liveAddHours" min="0" step="0.1" placeholder="配信時間(h)" style="width:110px">
+          <input type="number" id="liveAddCount" min="0" step="1" placeholder="回数(任意)" style="width:100px">
+          <input type="password" id="liveAddKey" placeholder="認証キー(設定時のみ)" style="width:150px">
+          <button class="primary" id="liveAddBtn">追加して反映</button>
+          <span class="muted" id="liveAddMsg"></span>
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:6px">※自動化する場合はHarboRの毎朝タスクから <code>POST /api/live_ingest</code> に <code>{date,hours,liveCount,key}</code> を送れば同じく反映されます（再デプロイ不要）。</div>
+      </details>
+      <div class="chartbox"><canvas id="dailyChart"></canvas></div>
+      <div id="dailyBody" style="margin-top:12px"></div>
+      <div id="dailyDrill" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <!-- COMPARE -->
+  <div class="panel" id="panel-compare">
+    <div class="card">
+      <h2>⚖️ 期間比較</h2>
+      <p class="desc">2つの期間を自由に選び、売上・顧客・キャンセル/返品・配信効率（<b>1時間あたり売上</b>など）を横並びで比較します。差分と変化率（%）を色で表示。プリセットか、カスタム日付で指定できます。</p>
+      <div class="cmp-setup">
+        <div class="cmp-col">
+          <div class="cmp-tag" style="background:#eef4f0;color:#1d5b3a">期間A</div>
+          <select id="cmpPresetA">
+            <option value="thismonth">当月</option>
+            <option value="lastmonth" selected>先月</option>
+            <option value="-7d">直近7日</option>
+            <option value="-30d">直近30日</option>
+            <option value="-90d">直近90日</option>
+            <option value="custom">カスタム…</option>
+          </select>
+          <span id="cmpCustomA" style="display:none"><input type="date" id="cmpFromA"> 〜 <input type="date" id="cmpToA"></span>
+          <span class="muted" id="cmpRangeA"></span>
+        </div>
+        <div class="cmp-col">
+          <div class="cmp-tag" style="background:#eef1f7;color:#2d4a86">期間B</div>
+          <select id="cmpPresetB">
+            <option value="thismonth" selected>当月</option>
+            <option value="lastmonth">先月</option>
+            <option value="-7d">直近7日</option>
+            <option value="-30d">直近30日</option>
+            <option value="-90d">直近90日</option>
+            <option value="custom">カスタム…</option>
+          </select>
+          <span id="cmpCustomB" style="display:none"><input type="date" id="cmpFromB"> 〜 <input type="date" id="cmpToB"></span>
+          <span class="muted" id="cmpRangeB"></span>
+        </div>
+        <button class="primary" id="cmpRun">⚖️ 比較する</button>
+      </div>
+      <div id="cmpStatus" class="muted" style="margin:8px 0"></div>
+      <div id="cmpResult"></div>
+    </div>
+  </div>
+
+  <!-- TIMING -->
+  <div class="panel" id="panel-timing">
+    <div style="margin-bottom:12px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+      <span><span class="sub">指標:</span> <span class="seg" id="timeMetric"><button data-m="orders" class="on">注文数</button><button data-m="sales">売上</button></span></span>
+    </div>
+    <div class="grid2">
+      <div class="card"><h2><span class="dot load" id="dotHour"></span>時間帯別（JST）</h2><div class="chartbox"><canvas id="hourChart"></canvas></div><div class="callout" id="hourCallout">—</div></div>
+      <div class="card"><h2><span class="dot load" id="dotDow"></span>曜日別（JST）</h2><div class="chartbox"><canvas id="dowChart"></canvas></div><div class="callout" id="dowCallout">—</div></div>
+    </div>
+    <div class="card">
+      <h2>🎯 曜日別 配信効率（売上 ÷ ばーびー配信時間）</h2>
+      <p class="desc">配信時間の長短に左右されない「<b>1時間あたり売上</b>」を曜日ごとに比較。どの曜日の配信が効率的かが分かります。<b>日次の配信時間データが必要</b>なため、データが溜まり次第（明日以降）数値が入ります。</p>
+      <div id="dowEffBody"><div class="muted">日次の配信時間データがまだありません。</div></div>
+    </div>
+    <div class="card">
+      <h2>🕐 時間帯別 配信効率（売上 ÷ 配信分・配信シフト基準）</h2>
+      <p class="desc">「配信シフト」タブで入力した<b>開始/終了時刻</b>をもとに、時間帯ごとの「配信1時間あたり売上」を算出します（配信が長い時間帯ほど売上が大きく見える交絡を排除）。BackStageは時間別内訳を持たないため、ここは配信シフトの入力が必要です。</p>
+      <div id="hourEffBody"><div class="muted">配信シフト（開始/終了）が未入力です。「配信シフト」タブで登録してください。</div></div>
+    </div>
+  </div>
+
+  <!-- ACTION -->
+  <!-- SHIFT -->
+  <div class="panel" id="panel-shift">
+    <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi"><div class="label">配信時間 合計</div><div class="val" id="shTotalHrs">—</div><div class="delta">表示期間内のシフト合計</div></div>
+      <div class="kpi"><div class="label">配信1時間あたり売上</div><div class="val" id="shPerHr" style="color:#2f6f4f">—</div><div class="delta">期間売上 ÷ 配信時間</div></div>
+      <div class="kpi"><div class="label">配信回数</div><div class="val" id="shCount">—</div><div class="delta">表示期間内のシフト数</div></div>
+      <div class="kpi"><div class="label">1回あたり平均</div><div class="val" id="shAvgHrs">—</div><div class="delta">平均配信時間</div></div>
+    </div>
+    <div class="card">
+      <h2>🎥 配信シフトを登録</h2>
+      <p class="desc">配信した日と時間を登録すると、上の「配信1時間あたり売上」が計算されます。この端末のブラウザに保存されます。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <input type="date" id="shDate">
+        <input type="time" id="shStart" style="width:110px"> 〜 <input type="time" id="shEnd" style="width:110px">
+        <input id="shName" placeholder="配信者名（任意）" style="width:150px">
+        <button class="primary" id="shAdd">＋ 追加</button>
+      </div>
+      <div id="shBody"><div class="muted">まだ配信シフトがありません。</div></div>
+    </div>
+    <div class="card">
+      <h2>📅 日別の配信効率（表示期間）</h2>
+      <p class="desc">表示期間内で、配信した日ごとの「売上 ÷ 配信時間」。配信のある日だけ表示します。</p>
+      <div id="shDayBody"><div class="muted">—</div></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-action">
+    <div class="card">
+      <h2>📋 アクションプラン（スケジュール・実行管理）</h2>
+      <p class="desc">やることを「内容＋予定日」で登録し、実行/未実行をチェックで管理します。この端末のブラウザに保存されます。<span id="actSummary" class="muted"></span></p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+        <div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:3px"><label class="sub">アクション内容</label><input id="actText" placeholder="例）バッジ付ニットボレロを新規向けライブの主役に"></div>
+        <div style="display:flex;flex-direction:column;gap:3px"><label class="sub">予定日</label><input type="date" id="actDate"></div>
+        <div style="display:flex;flex-direction:column;gap:3px"><label class="sub">担当（任意）</label><input id="actOwner" placeholder="例）田中" style="width:120px"></div>
+        <button class="primary" id="actAdd">＋ 追加</button>
+      </div>
+      <div class="seg" id="actFilter" style="margin-bottom:12px"><button data-f="all" class="on">すべて</button><button data-f="todo">未実行</button><button data-f="done">実行済</button></div>
+      <div id="actBody"></div>
+    </div>
+  </div>
+
+  <!-- STOCK / COST -->
+  <div class="panel" id="panel-stock">
+    <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi"><div class="label">TTS実在庫 合計</div><div class="val" id="sTTStock">—</div><div class="delta" id="sTTStockD">TikTok Shopの在庫数</div></div>
+      <div class="kpi"><div class="label">在庫金額（原価）</div><div class="val" id="sTTStockYen">—</div><div class="delta">実在庫 × 原価</div></div>
+      <div class="kpi"><div class="label">粗利益（推定）</div><div class="val" id="sGP" style="color:#2f6f4f">—</div><div class="delta">選択期間の純売上ベース</div></div>
+      <div class="kpi"><div class="label">粗利率（推定）</div><div class="val" id="sGM">—</div></div>
+    </div>
+    <div class="card">
+      <h2>🧾 原価の内訳（請求書照合用）</h2>
+      <p class="desc">選択期間の販売を、原価の出どころで <b>SD（スーパーデリバリー）仕入れ</b> と <b>個別ブランド</b> に分けて集計します。SDの請求書照合は「SD原価合計」と、下の<b>仕入台帳</b>を突き合わせてください。個別ブランドは商品名から推定したブランド別に内訳を表示します。</p>
+      <div class="grid2">
+        <div class="card" style="margin:0;background:#f7f9f8">
+          <h2 style="font-size:14px">SD仕入れ</h2>
+          <div class="kpis" style="grid-template-columns:repeat(2,1fr);margin:0">
+            <div class="kpi"><div class="label">SD原価合計</div><div class="val" id="spSdCogs" style="color:#b5651d">—</div><div class="delta" id="spSdMeta">—</div></div>
+            <div class="kpi"><div class="label">SD粗利</div><div class="val" id="spSdGp" style="color:#2f6f4f">—</div><div class="delta" id="spSdRev">純売上</div></div>
+          </div>
+        </div>
+        <div class="card" style="margin:0;background:#f8f7f9">
+          <h2 style="font-size:14px">個別ブランド</h2>
+          <div class="kpis" style="grid-template-columns:repeat(2,1fr);margin:0">
+            <div class="kpi"><div class="label">個別原価合計</div><div class="val" id="spOtCogs" style="color:#b5651d">—</div><div class="delta" id="spOtMeta">—</div></div>
+            <div class="kpi"><div class="label">個別粗利</div><div class="val" id="spOtGp" style="color:#2f6f4f">—</div><div class="delta" id="spOtRev">純売上</div></div>
+          </div>
+          <div style="margin-top:8px"><button class="mini" id="brandJump">▼ ブランド別の内訳を見る</button></div>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <h2 style="font-size:13.5px;margin:0 0 6px">個別ブランド別の内訳（推定）</h2>
+        <p class="desc" style="margin:0 0 8px">原価は <b>推定原価×販売数</b>。ブランド名は商品名からの自動推定のため目安です。発注タイミング（在庫増加）連動は履歴記録の開始後に反映します。</p>
+        <div id="brandBody"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🏷️ ブランド別 商品エクスプローラー</h2>
+      <p class="desc">どのブランドが・どの商品を出していて・どれくらい売れているか・在庫はいくつかを、ブランド単位で調べられます。行をクリックで、そのブランドの商品明細（販売数・売上・在庫）を開閉します。<span class="muted">ブランドは自動推定（SDは仕入先、非SDは商品名から）。</span></p>
+      <div style="margin-bottom:8px"><input id="brandSearch" placeholder="🔍 ブランド名で検索…" style="width:240px"></div>
+      <div id="brandExpBody"><div class="loading">読み込み中…</div></div>
+    </div>
+    <div class="card">
+      <h2><span class="dot load" id="dotTT"></span>📦 TikTok Shop 商品一覧（在庫・原価・粗利）</h2>
+      <p class="desc">TikTok Shopの<b>全商品</b>。在庫数はTikTokの実在庫。<b>原価は各行で編集できます</b>（金額を直接入力 or SD仕入れ商品を選択）。空欄の商品はSD実績から自動マッチ、無ければ売価×係数で推定。編集は<b>「保存して反映」</b>で確定します。</p>
+      <div id="ttStockNote"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <input id="ttSearch" placeholder="🔍 商品名で検索…" style="width:260px">
+        <span class="muted" id="ttCount"></span>
+        <label style="font-size:12.5px;margin-left:auto">原価未設定の推定＝売価×
+          <input id="rateInput" type="number" min="5" max="95" step="5" style="width:58px;padding:4px 6px"> %
+        </label>
+        <button class="primary" id="ovrSave">💾 保存して反映</button>
+        <button class="mini" id="ovrReset">編集をリセット</button>
+      </div>
+      <div id="ovrStatus" class="muted" style="margin-bottom:8px"></div>
+      <div id="ttBody"><div class="loading">読み込み中…</div></div>
+    </div>
+    <div class="card">
+      <h2>📒 SD仕入台帳（請求書照合用）</h2>
+      <p class="desc">SDの仕入履歴を「いつ・どの購入先から・何を・いくらで・何個」で記録します。<b>選択期間</b>の仕入を購入先別に集計。請求書と件数・金額を突き合わせてください。<span id="purMeta" class="muted"></span></p>
+      <div id="purBody"><div class="loading">読み込み中…</div></div>
+    </div>
+    <details style="margin-top:4px">
+      <summary style="cursor:pointer;color:#555;font-size:13px;padding:6px 2px">参考：SD仕入れ実績ベースの推定在庫（仕入累計 − 販売数）を表示</summary>
+      <div class="card" style="margin-top:8px">
+        <p class="desc">SD品番単位の参考値。<b>推定在庫＝SD仕入数量累計 − TikTok純販売数</b>。上のTikTok実在庫が正です。こちらは仕入れ実績の確認用。</p>
+        <div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input id="invSearch" placeholder="🔍 商品名・仕入先・品番で検索…" style="width:280px">
+          <span class="muted" id="invCount"></span>
+        </div>
+        <div id="invBody"><div class="loading">読み込み中…</div></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="foot" id="snapFoot" style="margin-bottom:4px"></div>
+  <div class="foot">データ提供: TikTok Shop (Peak TOKYO) · 原価=スーパーデリバリー仕入れ実績 · 開くたび／再読み込みのたびに最新データを取得します（10分キャッシュ）</div>
+</div>
+
+<script>
+const yen=n=>"¥"+Math.round(Number(n)||0).toLocaleString("ja-JP");
+const yk=n=>{n=Number(n)||0; return Math.abs(n)>=10000? "¥"+(n/10000).toFixed(1)+"万" : yen(n);};
+const pct=n=>(Number(n)*100).toFixed(1)+"%";
+const num=n=>(Number(n)||0).toLocaleString("ja-JP");
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function setDot(id,s){const e=document.getElementById(id); if(e)e.className="dot "+s;}
+function costSrcBadge(src){
+  // 3分類でシンプルに: SD実績原価 / 手動入力 / 推定
+  let label='推定', col='#d4861f';
+  if(src==='manual-cost'){ label='手動'; col='#2f6f4f'; }
+  else if(src==='manual'||(src&&src.indexOf('sd')===0)){ label='SD原価'; col='#2f6f4f'; }
+  else if(src==='manual-none'){ label='0円'; col='#9a9a9a'; }
+  return `<span style="font-size:10px;font-weight:700;color:#fff;background:${col};border-radius:5px;padding:1px 6px;white-space:nowrap">${label}</span>`;
+}
+const COST_OVR_KEY="peak_tt_cost_overrides_v1", COST_RATE_KEY="peak_tt_assume_rate_v1", COST_MANUAL_KEY="peak_tt_manual_costs_v1";
+function loadOvr(){ try{return JSON.parse(localStorage.getItem(COST_OVR_KEY)||"{}");}catch(e){return {};} }
+function saveOvr(o){ localStorage.setItem(COST_OVR_KEY,JSON.stringify(o)); }
+function loadManual(){ try{return JSON.parse(localStorage.getItem(COST_MANUAL_KEY)||"{}");}catch(e){return {};} }
+function saveManual(o){ localStorage.setItem(COST_MANUAL_KEY,JSON.stringify(o)); }
+function loadRate(){ const v=parseFloat(localStorage.getItem(COST_RATE_KEY)); return (v>0&&v<1)?v:0.5; }
+function saveRate(v){ localStorage.setItem(COST_RATE_KEY,String(v)); }
+const DOW=["日","月","火","水","木","金","土"];
+let charts={}; function destroy(id){ if(charts[id]){try{charts[id].destroy();}catch(e){} delete charts[id];} }
+const PAL={new:"#2f6f4f",bar:"#3a7ca5",barHi:"#d4861f",rate:"#b3261e"};
+let DATA=null, timeMetric="orders";
+const expanded={};
+function moreBtn(id,total){ if(total<=10) return ""; const ex=expanded[id]; return `<div class="morebtn"><button class="mini" data-exp="${id}">${ex?"▲ 折りたたむ":"▼ 続きを見る（残り"+num(total-10)+"件）"}</button></div>`; }
+
+function ymd(d){ return d.toISOString().slice(0,10); }
+function jstNow(){ return new Date(Date.now()+9*3600*1000); }
+function getRange(){
+  const p=document.getElementById("period").value;
+  const now=jstNow();
+  if(p==="thismonth"){ const s=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),1)); return {since:ymd(s),until:"today"}; }
+  if(p==="lastmonth"){ const s=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth()-1,1)); const e=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),0)); return {since:ymd(s),until:ymd(e)}; }
+  if(p==="month"){ const mv=document.getElementById("monthPick").value; if(mv){ const a=mv.split("-").map(Number); const s=new Date(Date.UTC(a[0],a[1]-1,1)); const e=new Date(Date.UTC(a[0],a[1],0)); const today=ymd(now), eStr=ymd(e); return {since:ymd(s),until:eStr>today?"today":eStr}; } const s=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),1)); return {since:ymd(s),until:"today"}; }
+  if(p==="custom"){ const s=document.getElementById("dFrom").value, e=document.getElementById("dTo").value; if(s&&e) return {since:s,until:e}; }
+  return {since:p,until:"today"};
+}
+
+// ===== 期間比較 =====
+function cmpResolve(preset,fromId,toId){
+  const now=jstNow();
+  if(preset==="thismonth"){ const s=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),1)); return {since:ymd(s),until:"today",label:"当月"}; }
+  if(preset==="lastmonth"){ const s=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth()-1,1)); const e=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),0)); return {since:ymd(s),until:ymd(e),label:"先月"}; }
+  if(preset==="custom"){ const s=document.getElementById(fromId).value,e=document.getElementById(toId).value; return {since:s,until:e,label:"カスタム"}; }
+  const lab=preset==="-7d"?"直近7日":preset==="-30d"?"直近30日":preset==="-90d"?"直近90日":preset;
+  return {since:preset,until:"today",label:lab};
+}
+async function cmpFetch(r){
+  const rr=await fetch("/api/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"dashboard",compare:true,since:r.since,until:r.until,costOverrides:loadOvr(),manualCosts:loadManual(),assumeRate:loadRate()})});
+  return await rr.json();
+}
+function cmpLiveSec(res){
+  const days=(res.trends&&res.trends.daysAll)||[]; const since=res.range&&res.range.since, until=res.range&&res.range.until;
+  const inR=k=>(!since||k>=since)&&(!until||until==="today"||k<=until);
+  let sec=0,ld=0; days.forEach(d=>{ if(inR(d.key)&&(d.liveSec>0)){ sec+=d.liveSec; ld++; } });
+  return {sec,ld};
+}
+function cmpMetrics(res){
+  const t=res.totals||{},c=res.customers||{},cn=res.cancellations||{},rt=res.returns||{},pr=res.profit||{};
+  const lv=cmpLiveSec(res), hrs=lv.sec/3600;
+  return {sales:t.sales||0,grossProfit:pr.grossProfit||0,grossMargin:pr.grossMargin||0,orders:t.orders||0,aov:t.aov||0,units:t.units||0,
+    liveHours:hrs,perHour:hrs>0?(t.sales/hrs):null,perDay:lv.ld>0?(t.sales/lv.ld):null,liveDays:lv.ld,
+    newRatio:c.newOrderRatio||0,repRate:c.repeatOrderRate||0,newCount:c.newCount||0,newCustAvg:c.newCustAvg||0,newCustMed:c.newCustMedian||0,
+    cancelCount:cn.count||0,cancelRate:cn.rate||0,returnCount:rt.count||0,returnAmt:rt.amount||0};
+}
+const CMP_DEFS=[
+  {sec:"売上・利益"},
+  {k:"sales",label:"売上（返金後）",fmt:yen,better:1},
+  {k:"grossProfit",label:"粗利益（推定）",fmt:yen,better:1},
+  {k:"grossMargin",label:"粗利率（推定）",fmt:pct,better:1,ispct:1},
+  {k:"orders",label:"注文数",fmt:v=>num(v)+"件",better:1},
+  {k:"aov",label:"平均注文額（AOV）",fmt:yen,better:1},
+  {k:"units",label:"販売個数",fmt:v=>num(v)+"個",better:1},
+  {sec:"配信効率"},
+  {k:"perHour",label:"配信1時間あたり売上",fmt:v=>v==null?"—":yen(v),better:1,nul:1},
+  {k:"perDay",label:"配信1日あたり売上",fmt:v=>v==null?"—":yen(v),better:1,nul:1},
+  {k:"liveHours",label:"配信時間",fmt:v=>v?secToHm(v*3600):"—",better:1,hours:1},
+  {k:"liveDays",label:"配信日数",fmt:v=>num(v)+"日",better:1},
+  {sec:"顧客"},
+  {k:"newRatio",label:"新規購入割合",fmt:pct,better:1,ispct:1},
+  {k:"repRate",label:"リピート購入率",fmt:pct,better:1,ispct:1},
+  {k:"newCount",label:"新規顧客数",fmt:v=>num(v)+"人",better:1},
+  {k:"newCustAvg",label:"新規1人あたり 平均",fmt:yen,better:1},
+  {k:"newCustMed",label:"新規1人あたり 中央値",fmt:yen,better:1},
+  {sec:"品質（少ないほど良い）"},
+  {k:"cancelCount",label:"キャンセル件数",fmt:v=>num(v)+"件",better:-1},
+  {k:"cancelRate",label:"キャンセル率",fmt:pct,better:-1,ispct:1},
+  {k:"returnCount",label:"返品件数",fmt:v=>num(v)+"件",better:-1},
+  {k:"returnAmt",label:"返金額",fmt:yen,better:-1},
+];
+function cmpCell(d,mA,mB){
+  const a=mA[d.k],b=mB[d.k];
+  if(d.nul&&(a==null||b==null)){ const diff=(a==null||b==null)?"—":""; return {a:d.fmt(a),b:d.fmt(b),diff:"—",chg:"—",cls:"chg-flat"}; }
+  const av=a||0,bv=b||0; const raw=bv-av; const sign=raw>=0?"+":"−";
+  let diff; if(d.ispct) diff=sign+Math.abs(raw*100).toFixed(1)+"pt"; else if(d.hours) diff=sign+secToHm(Math.abs(raw)*3600); else diff=sign+d.fmt(Math.abs(raw));
+  const pctChg=av!==0?(raw/Math.abs(av)):null;
+  const chg=pctChg==null?"—":((pctChg>=0?"+":"")+(pctChg*100).toFixed(1)+"%");
+  let cls="chg-flat"; if(raw!==0){ const good=(d.better>0)?(raw>0):(raw<0); cls=good?"chg-up":"chg-down"; }
+  return {a:d.fmt(a),b:d.fmt(b),diff,chg,cls};
+}
+async function runCompare(){
+  const st=document.getElementById("cmpStatus"), out=document.getElementById("cmpResult");
+  const rA=cmpResolve(document.getElementById("cmpPresetA").value,"cmpFromA","cmpToA");
+  const rB=cmpResolve(document.getElementById("cmpPresetB").value,"cmpFromB","cmpToB");
+  if(!rA.since||!rA.until||!rB.since||!rB.until){ st.textContent="カスタムは開始日・終了日を入力してください。"; return; }
+  st.textContent="比較データを取得中…（2期間ぶん）"; out.innerHTML="";
+  const btn=document.getElementById("cmpRun"); if(btn){btn.disabled=true;btn.textContent="取得中…";}
+  try{
+    const [resA,resB]=await Promise.all([cmpFetch(rA),cmpFetch(rB)]);
+    if(resA.error||resB.error){ st.innerHTML=`<span class="err">エラー: ${esc(resA.error||resB.error)}</span>`; return; }
+    const mA=cmpMetrics(resA), mB=cmpMetrics(resB);
+    const rgA=`${esc(resA.range.since)}〜${esc(resA.range.until==="today"?"今日":resA.range.until)}`;
+    const rgB=`${esc(resB.range.since)}〜${esc(resB.range.until==="today"?"今日":resB.range.until)}`;
+    let h=`<table class="cmptbl"><thead><tr><th>指標</th><th>A：${esc(rA.label)}<br><span class="muted" style="font-weight:400;font-size:10px">${rgA}</span></th><th>B：${esc(rB.label)}<br><span class="muted" style="font-weight:400;font-size:10px">${rgB}</span></th><th>差（B−A）</th><th>変化率</th></tr></thead><tbody>`;
+    CMP_DEFS.forEach(d=>{ if(d.sec){ h+=`<tr class="secrow"><td colspan="5">${esc(d.sec)}</td></tr>`; return; }
+      const c=cmpCell(d,mA,mB);
+      h+=`<tr><td>${esc(d.label)}</td><td class="mA">${c.a}</td><td class="mB">${c.b}</td><td class="${c.cls}">${c.diff}</td><td class="${c.cls}">${c.chg}</td></tr>`; });
+    h+=`</tbody></table><p class="desc" style="margin-top:8px">「品質」は少ないほど良い指標のため、減少を緑で表示しています。配信効率は配信のあった日・時間のみで算出。</p>`;
+    out.innerHTML=h; st.textContent="";
+  }catch(e){ st.innerHTML=`<span class="err">通信エラー: ${esc(String(e))}</span>`; }
+  finally{ if(btn){btn.disabled=false;btn.textContent="⚖️ 比較する";} }
+}
+
+let loadTimer=null, loadT0=0;
+function showLoading(on){
+  const ov=document.getElementById("overlay"), btn=document.getElementById("reloadBtn");
+  if(on){
+    loadT0=Date.now(); ov.classList.add("show"); btn.classList.add("btnload");
+    const sub=document.getElementById("ovSub");
+    const tick=()=>{ const s=((Date.now()-loadT0)/1000).toFixed(0); document.getElementById("ovTitle").textContent="最新データを取得中…（"+s+"秒）"; sub.textContent= s>8 ? "件数が多いと少し時間がかかります。そのままお待ちください" : "TikTok Shop から注文を集計しています"; };
+    tick(); loadTimer=setInterval(tick,500);
+  }else{
+    ov.classList.remove("show"); btn.classList.remove("btnload");
+    if(loadTimer){clearInterval(loadTimer); loadTimer=null;}
+  }
+}
+async function loadAll(){
+  const gs=document.getElementById("globalStatus"); gs.textContent="読み込み中…"; showLoading(true);
+  ["dotIns","dotProd","dotDaily","dotHour","dotDow","dotNewEx","dotTrend"].forEach(d=>setDot(d,"load"));
+  const R=getRange();
+  let res;
+  try{
+    const r=await fetch("/api/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"dashboard",since:R.since,until:R.until,costOverrides:loadOvr(),manualCosts:loadManual(),assumeRate:loadRate()})});
+    res=await r.json();
+  }catch(e){ gs.textContent=""; showLoading(false); document.getElementById("insights").innerHTML=`<div class="err">通信エラー: ${esc(String(e))}</div>`; return; }
+  if(res.error){ gs.textContent=""; showLoading(false); document.getElementById("insights").innerHTML=`<div class="err">エラー: ${esc(res.error)}</div>`; ["dotIns","dotProd","dotDaily","dotHour","dotDow","dotNewEx","dotTrend"].forEach(d=>setDot(d,"bad")); return; }
+  DATA=res;
+  document.getElementById("storeSub").textContent=`TikTok Shop連携 · ${esc(res.shop&&res.shop.name||"")} · ${esc(res.range.since)}〜${esc(res.range.until)}`;
+  gs.textContent=`対象注文 ${num((res.totals&&res.totals.orders)||0)} 件 · ${((Date.now()-loadT0)/1000).toFixed(1)}秒`;
+  renderOverview(); renderProducts(); renderProductCancel(); renderCustomers(); renderDaily(); renderTiming(); renderTrends(); renderWoW(); renderStock(); renderProgress(); renderShifts(); renderSnapBar(); renderDowEfficiency(); renderHourEfficiency();
+  renderCmpList(); renderCmpPick(); renderCmpCompare();
+  showLoading(false);
+}
+
+function renderOverview(){
+  const t=DATA.totals;
+  document.getElementById("kpiSales").textContent=yen(t.sales);
+  const refAmt=t.refundedAmt||0; const ttF=t.ttFunded||0;
+  { let parts=[];
+    if(ttF) parts.push(`TT負担クーポン ${yk(ttF)} 込み`);
+    if(refAmt) parts.push(`返金 ${yk(refAmt)} 差引後`);
+    document.getElementById("kpiSalesD").textContent = parts.length? parts.join("・") : "顧客支払＋TT負担クーポンの自社売上";
+  }
+  document.getElementById("kpiOrders").textContent=num(t.orders);
+  document.getElementById("kpiAov").textContent=yen(t.aov);
+  document.getElementById("kpiUnits").textContent=num(t.units)+"個";
+  const cn=DATA.cancellations||{count:0,amount:0,rate:0,units:0};
+  document.getElementById("kpiCancel").textContent=num(cn.count)+"件";
+  document.getElementById("kpiCancelD").textContent=`${num(cn.units||0)}点・割合${pct(cn.rate||0)}／売上に未計上`;
+  const ret=DATA.returns||{count:0,amount:0};
+  const refEl=document.getElementById("kpiRefund");
+  if(refEl){ refEl.textContent=num(ret.count||0)+"件";
+    document.getElementById("kpiRefundD").textContent=(ret.count||0)?`返金 ${yen(ret.amount||0)}（売上から ${yk(refAmt)} 差引）`:"返品・返金済みなし"; }
+  const c=DATA.customers||{};
+  document.getElementById("kpiNewRatio").textContent=c.available?pct(c.newOrderRatio):"—";
+  document.getElementById("kpiNewRatioD").textContent=c.available?`初回 ${num(c.firstOrders)} 件`:"初回注文 ÷ 注文数";
+  document.getElementById("kpiRepRate").textContent=c.available?pct(c.repeatOrderRate):"—";
+  document.getElementById("kpiRepRateD").textContent=c.available?`2回目+ ${num(c.repeatOrders)} 件`:"2回目以降 ÷ 注文数";
+  document.getElementById("kpiNewRep").textContent=c.available?`${num(c.firstOrders)} / ${num(c.repeatOrders)}`:"—";
+  const pr=DATA.profit||{}; const cm=DATA.costMeta||{};
+  document.getElementById("kpiGP").textContent=yen(pr.grossProfit||0);
+  document.getElementById("kpiGPd").textContent=`純売上 ${yk(pr.revenue||0)} − 原価 ${yk(pr.cogs||0)}`;
+  document.getElementById("kpiGM").textContent=pct(pr.grossMargin||0);
+  document.getElementById("kpiCOGS").textContent=yen(pr.cogs||0);
+  document.getElementById("kpiMatch").textContent=cm.totalProducts?pct((cm.matchedProducts||0)/cm.totalProducts):"—";
+  document.getElementById("kpiMatchD").textContent=cm.totalProducts?`${num(cm.matchedProducts)}/${num(cm.totalProducts)}商品がSD実原価・残りは推定`:"SD実原価で出せた商品の割合";
+  const rn=document.getElementById("rateNote"); if(rn) rn.textContent=Math.round((pr.assumeRate||0.5)*100);
+  const p=DATA.products||[];
+  if(p[0]){ document.getElementById("hlHero").textContent=p[0].name; document.getElementById("hlHeroS").textContent="純売上 "+yen(p[0].net); }
+  const byU=p.slice().sort((a,b)=>b.units-a.units)[0];
+  if(byU){ document.getElementById("hlUnit").textContent=byU.name; document.getElementById("hlUnitS").textContent=num(byU.units)+"個"; }
+  const hrs=DATA.hours||[]; const topH=hrs.slice().sort((a,b)=>b.orders-a.orders)[0];
+  if(topH){ document.getElementById("hlHour").textContent=topH.hour+"時台"; document.getElementById("hlHourS").textContent=num(topH.orders)+"注文 / "+yen(topH.sales); }
+  const ins=[];
+  if(p[0]) ins.push({h:"主力商品に在庫・露出を厚く",b:`<b>${esc(p[0].name)}</b> が純売上トップ（${yen(p[0].net)}）。在庫切れと露出減を避け、ライブの主役に。`});
+  if(topH) ins.push({h:"売れる時間帯にライブを寄せる",b:`注文は <b>${topH.hour}時台（JST）</b> に最多。配信・クーポン投下をこの枠に合わせる。`});
+  const pcs=(DATA.productCancel||[]).filter(x=>x.total>=5);
+  if(pcs.length&&pcs[0].rate>=0.15) ins.push({h:"キャンセルされやすい商品を点検",b:`<b>${esc(pcs[0].name)}</b> はキャンセル率 ${pct(pcs[0].rate)}（${num(pcs[0].cancelled)}/${num(pcs[0].total)}）。在庫・表記・品質を確認。`});
+  if(c.available) ins.push({h:"新規→2回目の引き上げ",b:`注文ベースで新規購入割合 <b>${pct(c.newOrderRatio)}</b>（初回 ${num(c.firstOrders)}件）、リピート購入率 <b>${pct(c.repeatOrderRate)}</b>（2回目+ ${num(c.repeatOrders)}件）。新規顧客（${num(c.newCount)}人）へ同梱フォロー・再入荷通知で2回目を後押し。`});
+  const low=p.filter(x=>x.net>0).slice(-3).reverse();
+  if(low.length) ins.push({h:"売上貢献の小さい商品は整理 or 底上げ",b:`${low.map(x=>`<b>${esc(x.name)}</b>`).join("、")} は期間売上が小さい。セット販売・露出削減・値引きテストで効率改善。`});
+  document.getElementById("insights").innerHTML=ins.map(i=>`<div class="ins"><div class="h">${i.h}</div><div class="b">${i.b}</div></div>`).join("")||`<div class="muted">データがありません。</div>`;
+  setDot("dotIns","ok");
+}
+
+let prodSort={key:"net",dir:-1};
+function renderProducts(){
+  const q=(document.getElementById("prodSearch").value||"").trim().toLowerCase();
+  let rows=(DATA.products||[]).filter(r=>!q||r.name.toLowerCase().includes(q));
+  const k=prodSort.key,dir=prodSort.dir; rows.sort((a,b)=>(a[k]<b[k]?-1:a[k]>b[k]?1:0)*dir);
+  const total=rows.length;
+  document.getElementById("prodCount").textContent=`${total}件`;
+  const show=expanded["prod"]?rows:rows.slice(0,10);
+  const arrow=key=>prodSort.key===key?(prodSort.dir<0?"▼":"▲"):"";
+  let h=`<table><thead><tr>
+    <th class="sortable" data-k="name">商品 <span class="arrow">${arrow("name")}</span></th>
+    <th class="sortable" data-k="net">純売上 <span class="arrow">${arrow("net")}</span></th>
+    <th class="sortable" data-k="units">販売個数 <span class="arrow">${arrow("units")}</span></th>
+    <th class="sortable" data-k="costUnit">原価/個 <span class="arrow">${arrow("costUnit")}</span></th>
+    <th class="sortable" data-k="grossProfit">粗利益 <span class="arrow">${arrow("grossProfit")}</span></th>
+    <th class="sortable" data-k="margin">粗利率 <span class="arrow">${arrow("margin")}</span></th>
+    <th class="sortable" data-k="orders">注文数 <span class="arrow">${arrow("orders")}</span></th>
+    <th class="sortable" data-k="newBuyers">新規顧客 <span class="arrow">${arrow("newBuyers")}</span></th>
+    <th class="sortable" data-k="existBuyers">既存顧客 <span class="arrow">${arrow("existBuyers")}</span></th>
+    <th>TikTok分析</th></tr></thead><tbody>`;
+  const ttItems=(DATA.ttStock&&DATA.ttStock.items)||[];
+  const pNorm=s=>String(s||"").replace(/[\s　]/g,"").toLowerCase();
+  const ttMap={}; ttItems.forEach(it=>{ if(it.title) ttMap[pNorm(it.title)]=it.id; });
+  const findTTId=(name)=>ttMap[pNorm(name)]||null;
+  show.forEach((r,i)=>{ const mcol=(r.margin||0)>=0.4?"#2f6f4f":((r.margin||0)>=0.2?"#d4861f":"#b3261e"); const pid=findTTId(r.name);
+    h+=`<tr><td>${esc(r.name)}${i===0&&!q&&!expanded["prod"]&&prodSort.key==="net"&&prodSort.dir<0?'<span class="hero">売上1位</span>':''}</td><td>${yen(r.net)}</td><td>${num(r.units)}個</td><td>${yen(r.costUnit||0)} ${costSrcBadge(r.costSource)}</td><td style="font-weight:600;color:${mcol}">${yen(r.grossProfit||0)}</td><td style="font-weight:700;color:${mcol}">${pct(r.margin||0)}</td><td>${num(r.orders)}</td><td style="color:#2f6f4f;font-weight:600">${num(r.newBuyers)}人</td><td>${num(r.existBuyers)}人</td><td>${pid?`<button class="mini" data-pa="${esc(r.name)}" data-paid="${esc(pid)}">分析 ▾</button>`:'<span class="muted" style="font-size:11px">—</span>'}</td></tr>`; });
+  document.getElementById("prodBody").innerHTML=h+`</tbody></table>`+moreBtn("prod",total);
+  document.querySelectorAll('#prodBody th.sortable').forEach(th=>th.addEventListener("click",()=>{const key=th.dataset.k; if(prodSort.key===key)prodSort.dir*=-1; else{prodSort.key=key; prodSort.dir=key==="name"?1:-1;} renderProducts();}));
+  document.querySelectorAll('#prodBody [data-exp]').forEach(b=>b.addEventListener("click",()=>{expanded["prod"]=!expanded["prod"]; renderProducts();}));
+  document.querySelectorAll('#prodBody [data-pa]').forEach(b=>b.addEventListener("click",async()=>{
+    const tr=b.closest("tr"), id=b.dataset.paid, name=b.dataset.pa, nxt=tr.nextElementSibling;
+    if(nxt&&nxt.classList.contains("pa-detail")){ nxt.remove(); b.textContent="分析 ▾"; return; }
+    b.textContent="分析 ▲";
+    const dr=document.createElement("tr"); dr.className="pa-detail"; const td=document.createElement("td"); td.colSpan=10;
+    td.innerHTML='<div class="loading" style="padding:6px">TikTok分析を取得中…</div>'; dr.appendChild(td); tr.after(dr);
+    const R=DATA.range||{};
+    try{
+      const rs=await fetch(`/api/product_analytics?id=${encodeURIComponent(id)}&since=${encodeURIComponent(R.since)}&until=${encodeURIComponent(R.until)}`);
+      const j=await rs.json();
+      if(!j.ok){ td.innerHTML=`<div class="err" style="margin:4px">TikTok分析を取得できませんでした: ${esc(j.error||"")}</div>`; return; }
+      const m=j.metrics||{}; const cell=(l,v)=>`<div style="display:inline-block;min-width:130px;margin:2px 14px 2px 0"><span class="muted" style="font-size:11px">${l}</span><br><b style="font-size:15px">${v}</b></div>`;
+      td.innerHTML=`<div style="padding:8px 6px;background:#faf7f0;border-radius:8px">
+        <div style="font-size:11px;color:#888;margin-bottom:4px">TikTok Shop 分析（${esc(R.since)}〜${esc(R.until)}）</div>
+        ${cell("GMV", m.gmv!=null?yen(m.gmv):"—")}${cell("注文数", m.orders!=null?num(m.orders):"—")}${cell("販売数", m.units!=null?num(m.units)+"個":"—")}${cell("CTR(クリック率)", m.ctr!=null?(m.ctr*100).toFixed(2)+"%":"—")}
+      </div>`;
+    }catch(e){ td.innerHTML=`<div class="err" style="margin:4px">通信エラー</div>`; }
+  }));
+  setDot("dotProd","ok");
+}
+
+let invSort={key:"stock",dir:-1}, ttSort={key:"stock",dir:-1};
+function renderTTStock(){
+  const ts=DATA.ttStock||{available:false};
+  const note=document.getElementById("ttStockNote");
+  if(!ts.available){
+    document.getElementById("sTTStock").textContent="—"; document.getElementById("sTTStockYen").textContent="—";
+    document.getElementById("sTTStockD").textContent="取得できません";
+    note.innerHTML=`<div class="err" style="margin-bottom:10px">TikTok Shopの在庫を取得できませんでした：${esc((ts.error||"不明なエラー").slice(0,160))}<br><b>商品（Product）APIの権限が必要です。</b> TikTok Partner Center でアプリに商品権限を追加し、<code>/api/auth</code> から再認可してください。再認可後にこのページを再読み込みすると在庫が表示されます。</div>`;
+    document.getElementById("ttBody").innerHTML=`<div class="muted">実在庫データなし（権限付与＆再認可で表示されます）。下の「推定在庫」は仕入実績ベースで参照できます。</div>`;
+    document.getElementById("ttCount").textContent="";
+    setDot("dotTT","bad"); return;
+  }
+  note.innerHTML="";
+  document.getElementById("sTTStock").textContent=num(ts.totalStock||0)+"個";
+  document.getElementById("sTTStockYen").textContent=yen(ts.totalStockValue||0);
+  document.getElementById("sTTStockD").textContent=`表示中 ${num(ts.count||0)}商品`+(ts.hiddenExcluded?`（非表示 ${num(ts.hiddenExcluded)}件は除外）`:"");
+  document.getElementById("rateInput").value=Math.round(loadRate()*100);
+  const manual=loadManual(), ovr=loadOvr();
+  const q=(document.getElementById("ttSearch").value||"").trim().toLowerCase();
+  let rows=(ts.items||[]).filter(r=>!q||(r.title||"").toLowerCase().includes(q));
+  const k=ttSort.key,dir=ttSort.dir; rows.sort((a,b)=>{const av=a[k]==null?-1:a[k],bv=b[k]==null?-1:b[k];return (av<bv?-1:av>bv?1:0)*dir;});
+  document.getElementById("ttCount").textContent=`${rows.length}件 / 全${(ts.items||[]).length}商品`;
+  const show=expanded["tt"]?rows:rows.slice(0,20);
+  const ar=key=>ttSort.key===key?(ttSort.dir<0?"▼":"▲"):"";
+  // SD紐付け用の選択肢（在庫=SDマスタ由来のbase一覧）。重複排除。
+  const sdOpts=(DATA.inventory||[]).slice().sort((a,b)=>(a.name<b.name?-1:1))
+    .map(m=>`<option value="${esc(m.base)}">${esc((m.name||m.base).slice(0,40))}（¥${num(m.cost)}）</option>`).join("");
+  let h=`<table><thead><tr>
+    <th class="sortable" data-k="title">商品 <span class="arrow">${ar("title")}</span></th>
+    <th class="sortable" data-k="stock">在庫数 <span class="arrow">${ar("stock")}</span></th>
+    <th class="sortable" data-k="salePrice">売価 <span class="arrow">${ar("salePrice")}</span></th>
+    <th>原価（編集可）</th>
+    <th class="sortable" data-k="margin">粗利率 <span class="arrow">${ar("margin")}</span></th>
+    <th class="sortable" data-k="stockValue">在庫金額 <span class="arrow">${ar("stockValue")}</span></th>
+    <th>リンク</th></tr></thead><tbody>`;
+  show.forEach(r=>{ const lowStock=(r.stock!=null&&r.stock<=3); const scol=r.stock===0?"#b3261e":(lowStock?"#d4861f":"#1f1f1f");
+    const mc=manual[r.title]; const mcVal=(mc===0||mc)?mc:"";
+    const curOvr=Object.prototype.hasOwnProperty.call(ovr,r.title)?ovr[r.title]:"";
+    const mcol=(r.margin==null)?"#9a9a9a":(r.margin>=0.4?"#2f6f4f":(r.margin>=0.2?"#d4861f":"#b3261e"));
+    const btn=r.link?`<a href="${esc(r.link)}" target="_blank" rel="noopener" class="mini" style="text-decoration:none;display:inline-block">商品ページ ↗</a>`:`<span class="muted" style="font-size:11px">—</span>`;
+    h+=`<tr>
+      <td style="white-space:normal">${esc(r.title)}</td>
+      <td style="font-weight:700;color:${scol}">${r.stock==null?"—":num(r.stock)+"個"}</td>
+      <td>${r.salePrice==null?"—":yen(r.salePrice)}</td>
+      <td style="white-space:nowrap">
+        <input type="number" min="0" step="1" placeholder="${r.cost==null?'原価':num(r.cost)}" value="${mcVal}" data-mc="${esc(r.title)}" style="width:78px;padding:3px 5px"> 円
+        ${costSrcBadge(r.costSource)}
+        <br><select data-ovr="${esc(r.title)}" style="max-width:200px;margin-top:3px;font-size:11px"><option value="">SD紐付けなし</option>${sdOpts}</select>
+      </td>
+      <td style="font-weight:700;color:${mcol}">${r.margin==null?"—":pct(r.margin)}</td>
+      <td>${r.stockValue==null?"—":yen(r.stockValue)}</td>
+      <td>${btn}</td></tr>`; });
+  document.getElementById("ttBody").innerHTML=h+`</tbody></table>`+moreBtn("tt",rows.length);
+  // 現在のSD紐付けをselectに反映
+  document.querySelectorAll('#ttBody select[data-ovr]').forEach(sel=>{ const c=Object.prototype.hasOwnProperty.call(ovr,sel.dataset.ovr)?ovr[sel.dataset.ovr]:""; if(c&&c!=="NONE") sel.value=c; });
+  document.querySelectorAll('#ttBody input[data-mc]').forEach(inp=>inp.addEventListener("change",()=>{ const m=loadManual(); const key=inp.dataset.mc; const v=inp.value.trim(); if(v==="") delete m[key]; else m[key]=Number(v); saveManual(m); markDirty(); }));
+  document.querySelectorAll('#ttBody select[data-ovr]').forEach(sel=>sel.addEventListener("change",()=>{ const o=loadOvr(); const key=sel.dataset.ovr; if(sel.value==="") delete o[key]; else o[key]=sel.value; saveOvr(o); markDirty(); }));
+  document.querySelectorAll('#ttBody th.sortable').forEach(th=>th.addEventListener("click",()=>{const key=th.dataset.k; if(ttSort.key===key)ttSort.dir*=-1; else{ttSort.key=key; ttSort.dir=(key==="title")?1:-1;} renderTTStock();}));
+  document.querySelectorAll('#ttBody [data-exp]').forEach(b=>b.addEventListener("click",()=>{expanded["tt"]=!expanded["tt"]; renderTTStock();}));
+  setDot("dotTT","ok");
+}
+function markDirty(){ const e=document.getElementById("ovrStatus"); if(e) e.textContent="● 未保存の変更があります —「💾 保存して反映」を押すと粗利・在庫金額に反映されます"; }
+
+// ===== 月次進捗・目標・配信効率・スナップショット =====
+const GOAL_KEY="peak_tt_goals_v1", SHIFT_KEY="peak_tt_shifts_v1";
+function loadGoals(){ try{return JSON.parse(localStorage.getItem(GOAL_KEY)||"{}");}catch(e){return{};} }
+function saveGoals(o){ localStorage.setItem(GOAL_KEY,JSON.stringify(o)); }
+function loadShifts(){ try{return JSON.parse(localStorage.getItem(SHIFT_KEY)||"[]");}catch(e){return[];} }
+function saveShifts(a){ localStorage.setItem(SHIFT_KEY,JSON.stringify(a)); }
+function shiftHours(s){ if(!s.start||!s.end) return 0; const a=s.start.split(":").map(Number),b=s.end.split(":").map(Number); let d=(b[0]*60+b[1])-(a[0]*60+a[1]); if(d<0)d+=1440; return d/60; }
+function liveHoursInRange(since,until){ let h=0; loadShifts().forEach(s=>{ if(s.date>=since&&s.date<=until) h+=shiftHours(s); }); return h; }
+function renderProgress(){
+  const range=DATA.range||{}; const since=range.since||"", until=range.until||since;
+  const sales=(DATA.totals&&DATA.totals.sales)||0;
+  const pv=document.getElementById("period").value;
+  const isMonthly=(pv==="thismonth"||pv==="lastmonth"||pv==="month");
+  const refMonth=since.slice(0,7);
+  document.getElementById("progTitle").textContent= isMonthly?`📈 ${refMonth} の進捗`:"📈 期間の進捗";
+  document.getElementById("progSalesLbl").textContent= isMonthly?`${refMonth} 売上`:"期間売上";
+  document.getElementById("progSales").textContent=yen(sales);
+  document.getElementById("progSalesD").textContent=`${esc(since)}〜${esc(until)}`;
+  // 前月同日比（trends.daysAllから）
+  const days=(DATA.trends&&DATA.trends.daysAll)||[]; const m={}; days.forEach(d=>m[d.key]=d.sales);
+  const sumR=(s,e)=>{ let t=0; for(const k in m){ if(k>=s&&k<=e) t+=m[k]; } return t; };
+  let momTxt="—", momD="前月同期間のデータなし";
+  if(refMonth){ const a=refMonth.split("-").map(Number);
+    const endDay=Number(until.slice(8,10))||1;
+    const prevFirst=new Date(Date.UTC(a[0],a[1]-2,1)).toISOString().slice(0,10);
+    const pLast=new Date(Date.UTC(a[0],a[1]-1,0)).getUTCDate();
+    const prevEnd=new Date(Date.UTC(a[0],a[1]-2,Math.min(endDay,pLast))).toISOString().slice(0,10);
+    const cur=sumR(since,until), prev=sumR(prevFirst,prevEnd);
+    if(prev>0){ momTxt=pct(cur/prev); momD=`前月同期間 ${yk(prev)} → ${yk(cur)}`; }
+  }
+  document.getElementById("progMoM").textContent=momTxt; document.getElementById("progMoMd").textContent=momD;
+  // 目標達成率
+  const goals=loadGoals(); const g=goals[refMonth]||0;
+  document.getElementById("goalInput").value=g||""; document.getElementById("goalMonthLbl").textContent=refMonth||"対象月";
+  if(g>0){ document.getElementById("progGoal").textContent=pct(sales/g); document.getElementById("progGoalD").textContent=`目標 ${yk(g)} / 実績 ${yk(sales)}`; }
+  else { document.getElementById("progGoal").textContent="—"; document.getElementById("progGoalD").textContent="目標未設定（下で入力）"; }
+  // 配信1時間あたり
+  const hrs=liveHoursInRange(since,until);
+  document.getElementById("progPerHr").textContent= hrs>0?yen(Math.round(sales/hrs)):"—";
+  document.getElementById("progPerHrD").textContent= hrs>0?`配信 ${hrs.toFixed(1)}h`:"配信シフト未登録";
+}
+function renderShifts(){
+  const range=(DATA&&DATA.range)||{}; const since=range.since||"", until=range.until||since;
+  const all=loadShifts().slice().sort((a,b)=>a.date<b.date?1:-1);
+  const inP=all.filter(s=>s.date>=since&&s.date<=until);
+  const totHrs=inP.reduce((t,s)=>t+shiftHours(s),0);
+  const sales=(DATA&&DATA.totals&&DATA.totals.sales)||0;
+  document.getElementById("shTotalHrs").textContent= totHrs>0?totHrs.toFixed(1)+"h":"0h";
+  document.getElementById("shPerHr").textContent= totHrs>0?yen(Math.round(sales/totHrs)):"—";
+  document.getElementById("shCount").textContent= inP.length+"回";
+  document.getElementById("shAvgHrs").textContent= inP.length?(totHrs/inP.length).toFixed(1)+"h":"—";
+  if(!all.length){ document.getElementById("shBody").innerHTML=`<div class="muted">まだ配信シフトがありません。</div>`; }
+  else{
+    let h=`<table><thead><tr><th>日付</th><th>時間</th><th>配信時間</th><th>配信者</th><th></th></tr></thead><tbody>`;
+    all.slice(0,200).forEach(s=>{ h+=`<tr><td>${esc(s.date)}</td><td>${esc(s.start||"")}〜${esc(s.end||"")}</td><td>${shiftHours(s).toFixed(1)}h</td><td>${esc(s.name||"")}</td><td><button class="mini" data-shdel="${s.id}">削除</button></td></tr>`; });
+    document.getElementById("shBody").innerHTML=h+`</tbody></table>`;
+    document.querySelectorAll('#shBody [data-shdel]').forEach(b=>b.addEventListener("click",()=>{ saveShifts(loadShifts().filter(x=>x.id!==b.dataset.shdel)); renderShifts(); renderProgress(); }));
+  }
+  const days=(DATA&&DATA.trends&&DATA.trends.daysAll)||[]; const dm={}; days.forEach(d=>dm[d.key]=d.sales);
+  const byDate={}; inP.forEach(s=>{ byDate[s.date]=(byDate[s.date]||0)+shiftHours(s); });
+  const dates=Object.keys(byDate).sort((a,b)=>a<b?1:-1);
+  if(!dates.length){ document.getElementById("shDayBody").innerHTML=`<div class="muted">表示期間内に配信シフトがありません。</div>`; }
+  else{
+    let h=`<table><thead><tr><th>日付</th><th>配信時間</th><th>売上</th><th>1時間あたり</th></tr></thead><tbody>`;
+    dates.forEach(d=>{ const hrs=byDate[d], sl=dm[d]||0; h+=`<tr><td>${esc(d)}</td><td>${hrs.toFixed(1)}h</td><td>${yen(sl)}</td><td style="font-weight:700;color:#2f6f4f">${hrs>0?yen(Math.round(sl/hrs)):"—"}</td></tr>`; });
+    document.getElementById("shDayBody").innerHTML=h+`</tbody></table>`;
+  }
+}
+function addShift(){ const date=document.getElementById("shDate").value,start=document.getElementById("shStart").value,end=document.getElementById("shEnd").value,name=document.getElementById("shName").value.trim();
+  if(!date||!start||!end){ alert("日付・開始・終了を入力してください"); return; }
+  const a=loadShifts(); a.push({id:"s"+Date.now()+Math.random().toString(36).slice(2,5),date,start,end,name}); saveShifts(a);
+  document.getElementById("shName").value=""; renderShifts(); renderProgress(); }
+function renderSnapBar(){
+  const s=DATA.snapshotInfo; const bar=document.getElementById("snapBar"); const foot=document.getElementById("snapFoot");
+  bar.style.display="none"; if(foot) foot.innerHTML="";
+  if(!s) return;
+  if(!s.configured){
+    bar.style.display="block"; bar.style.background="#fff4e5"; bar.style.border="1px solid #f0c27a";
+    bar.innerHTML=`⚡ 読み込み高速化（履歴スナップショット）が未設定です。VercelでBlobストアを接続すると大幅に速くなります。 <button class="mini" id="snapHelp">設定方法</button>`;
+    document.getElementById("snapHelp").addEventListener("click",()=>alert("Vercel → プロジェクト peak-live-tiktok → Storage → Create Database → Blob を作成 → このプロジェクトに接続。\n接続後に Redeploy すると、ここに『履歴を更新』ボタンが出ます。"));
+    return;
+  }
+  const ageDays=s.builtAt?Math.floor((Date.now()-s.builtAt)/86400000):null;
+  const fresh = s.hasSnapshot && ageDays!=null && ageDays<30;
+  if(fresh){
+    // 問題なし → 目立たないフッターに小さく表示（更新ボタンも控えめに残す）
+    if(foot) foot.innerHTML=`📦 履歴スナップショット: ${num(s.snapshotOrders)}件・${ageDays}日前に更新 <a href="#" id="snapUpdate" style="margin-left:6px">手動更新</a> <span class="muted" id="snapMsg"></span>`;
+  } else {
+    // 未作成 or 30日以上未更新 → 目立つ上部バーで警告＋更新ボタン
+    bar.style.display="block"; bar.style.background="#fdecea"; bar.style.border="1px solid #e0a59f";
+    const ageTxt=s.builtAt?`${ageDays}日前に更新`:"未作成";
+    const head= s.hasSnapshot? `📦 履歴スナップショットが${ageDays}日前から未更新です` : "📦 履歴スナップショットが未作成です";
+    bar.innerHTML=`${head} <b style="color:#b3261e">— 「履歴を更新」を押してください（月1回でOK）</b> <button class="primary" id="snapUpdate" style="margin-left:10px">🔄 履歴を更新</button> <span class="muted" id="snapMsg"></span>`;
+  }
+  const btn=document.getElementById("snapUpdate"); if(btn) btn.addEventListener("click",(e)=>{ e.preventDefault(); updateSnapshot(); });
+}
+async function updateSnapshot(){
+  const msg=document.getElementById("snapMsg"), btn=document.getElementById("snapUpdate");
+  if(btn){ btn.disabled=true; btn.textContent="更新中…(最大2分)"; } if(msg) msg.textContent="";
+  try{
+    const r=await fetch("/api/snapshot",{method:"POST"}); const j=await r.json();
+    if(j.ok){ if(msg) msg.textContent=`✓ ${num(j.count)}件を保存（${(j.elapsedMs/1000).toFixed(0)}秒）。再読み込みします…`; setTimeout(loadAll,800); }
+    else { if(msg) msg.textContent="✗ "+(j.error||"失敗"); if(btn){ btn.disabled=false; btn.textContent="🔄 履歴を更新"; } }
+  }catch(e){ if(msg) msg.textContent="✗ 通信エラー"; if(btn){ btn.disabled=false; btn.textContent="🔄 履歴を更新"; } }
+}
+function renderStock(){
+  const pr=DATA.profit||{}; const inv=DATA.inventory||[]; const cm=DATA.costMeta||{};
+  document.getElementById("sGP").textContent=yen(pr.grossProfit||0);
+  document.getElementById("sGM").textContent=pct(pr.grossMargin||0);
+  renderProfitSplit(); renderPurchases(); renderBrandExplorer();
+  renderTTStock();
+  // inventory table
+  const q=(document.getElementById("invSearch").value||"").trim().toLowerCase();
+  let rows=inv.filter(r=>!q||(r.name||"").toLowerCase().includes(q)||(r.vendor||"").toLowerCase().includes(q)||(r.base||"").includes(q)||(r.maker||"").toLowerCase().includes(q));
+  const k=invSort.key,dir=invSort.dir; rows.sort((a,b)=>(a[k]<b[k]?-1:a[k]>b[k]?1:0)*dir);
+  document.getElementById("invCount").textContent=`${rows.length}件 / 全${inv.length}商品`;
+  const show=expanded["inv"]?rows:rows.slice(0,15);
+  const arrow=key=>invSort.key===key?(invSort.dir<0?"▼":"▲"):"";
+  let h=`<table><thead><tr>
+    <th class="sortable" data-k="name">SD商品名 <span class="arrow">${arrow("name")}</span></th>
+    <th class="sortable" data-k="vendor">仕入先 <span class="arrow">${arrow("vendor")}</span></th>
+    <th class="sortable" data-k="base">SD品番 <span class="arrow">${arrow("base")}</span></th>
+    <th class="sortable" data-k="cost">原価 <span class="arrow">${arrow("cost")}</span></th>
+    <th class="sortable" data-k="purchased">仕入累計 <span class="arrow">${arrow("purchased")}</span></th>
+    <th class="sortable" data-k="sold">販売数 <span class="arrow">${arrow("sold")}</span></th>
+    <th class="sortable" data-k="stock">推定在庫 <span class="arrow">${arrow("stock")}</span></th></tr></thead><tbody>`;
+  show.forEach(r=>{ const scol=r.stock<0?"#b3261e":(r.stock===0?"#9a9a9a":"#1f1f1f");
+    h+=`<tr><td style="white-space:normal">${esc(r.name||"(名称なし)")}</td><td>${esc(r.vendor||"")}</td><td style="font-size:11px;color:#888">${esc(r.base)}</td><td>${yen(r.cost)}</td><td>${num(r.purchased)}個</td><td>${num(r.sold)}個</td><td style="font-weight:700;color:${scol}">${num(r.stock)}個</td></tr>`; });
+  document.getElementById("invBody").innerHTML=h+`</tbody></table>`+moreBtn("inv",rows.length);
+  document.querySelectorAll('#invBody th.sortable').forEach(th=>th.addEventListener("click",()=>{const key=th.dataset.k; if(invSort.key===key)invSort.dir*=-1; else{invSort.key=key; invSort.dir=key==="name"||key==="vendor"||key==="base"?1:-1;} renderStock();}));
+  document.querySelectorAll('#invBody [data-exp]').forEach(b=>b.addEventListener("click",()=>{expanded["inv"]=!expanded["inv"]; renderStock();}));
+}
+
+function renderProfitSplit(){
+  const sp=((DATA.profit||{}).split)||{};
+  const sd=sp.sd||{revenue:0,cogs:0,grossProfit:0,products:0,units:0};
+  const ot=sp.other||{revenue:0,cogs:0,grossProfit:0,products:0,units:0};
+  document.getElementById("spSdCogs").textContent=yen(sd.cogs||0);
+  document.getElementById("spSdMeta").textContent=`${num(sd.products||0)}商品 / ${num(sd.units||0)}個`;
+  document.getElementById("spSdGp").textContent=yen(sd.grossProfit||0);
+  document.getElementById("spSdRev").textContent="純売上 "+yen(sd.revenue||0);
+  document.getElementById("spOtCogs").textContent=yen(ot.cogs||0);
+  document.getElementById("spOtMeta").textContent=`${num(ot.products||0)}商品 / ${num(ot.units||0)}個`;
+  document.getElementById("spOtGp").textContent=yen(ot.grossProfit||0);
+  document.getElementById("spOtRev").textContent="純売上 "+yen(ot.revenue||0);
+  const bb=ot.byBrand||[]; const bEl=document.getElementById("brandBody");
+  if(bEl){
+    if(!bb.length){ bEl.innerHTML=`<div class="muted">個別ブランドの販売がありません。</div>`; }
+    else{
+      let h=`<table><thead><tr><th>ブランド（推定）</th><th>仕入額（推定原価×数量）</th><th>純売上</th><th>粗利</th><th>販売数</th><th>商品数</th></tr></thead><tbody>`;
+      bb.forEach(r=>{ const gp=(r.revenue||0)-(r.cogs||0);
+        h+=`<tr><td>${esc(r.brand||"ブランド不明")}</td><td style="font-weight:700;color:#b5651d">${yen(r.cogs||0)}</td><td>${yen(r.revenue||0)}</td><td style="color:#2f6f4f">${yen(gp)}</td><td>${num(r.units||0)}個</td><td>${num(r.products||0)}</td></tr>`; });
+      bEl.innerHTML=h+`</tbody></table>`;
+    }
+  }
+  const bj=document.getElementById("brandJump");
+  if(bj&&!bj._wired){ bj._wired=true; bj.addEventListener("click",()=>{ const t=document.getElementById("brandBody"); if(t){ try{t.scrollIntoView({behavior:"smooth",block:"center"});}catch(e){t.scrollIntoView();} t.style.transition="background .2s"; t.style.background="#fff7e6"; setTimeout(()=>{t.style.background="";},900); } }); }
+}
+
+function renderPurchases(){
+  const p=DATA.purchasesLog||{};
+  const body=document.getElementById("purBody");
+  const metaEl=document.getElementById("purMeta");
+  if(!p.available){
+    metaEl.textContent="";
+    body.innerHTML=`<div class="muted">仕入台帳データがまだありません。SDの仕入履歴を <code>data/仕入履歴_pageN.txt</code> として保存し、<code>node scripts/build_purchases.js</code> を実行→再デプロイで反映されます。</div>`;
+    return;
+  }
+  const m=p.meta||{}; const per=p.period||{};
+  metaEl.textContent=` 取込済: ${num(m.rows||0)}明細（${m.dateMin||"?"}〜${m.dateMax||"?"}）`;
+  let h=`<div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:0 0 12px">
+    <div class="kpi"><div class="label">期間内の仕入額</div><div class="val" style="color:#b5651d">${yen(per.amount||0)}</div><div class="delta">原価ベース</div></div>
+    <div class="kpi"><div class="label">仕入点数</div><div class="val">${num(per.qty||0)}個</div><div class="delta">${num(per.lines||0)}明細</div></div>
+    <div class="kpi"><div class="label">購入先数</div><div class="val">${num(per.vendors||0)}社</div></div>
+  </div>`;
+  const bv=p.byVendor||[];
+  if(bv.length){
+    h+=`<h2 style="font-size:13.5px;margin:6px 0">購入先別（期間内）</h2><table><thead><tr><th>購入先</th><th>仕入額</th><th>点数</th><th>明細</th></tr></thead><tbody>`;
+    bv.forEach(v=>{ h+=`<tr><td>${esc(v.key)}</td><td style="font-weight:700;color:#b5651d">${yen(v.amount)}</td><td>${num(v.qty)}個</td><td>${num(v.lines)}</td></tr>`; });
+    h+=`</tbody></table>`;
+  }else{
+    h+=`<div class="muted">選択期間に該当する仕入はありません（取込済データの期間: ${m.dateMin||"?"}〜${m.dateMax||"?"}）。</div>`;
+  }
+  const det=p.detail||[];
+  if(det.length){
+    const show=expanded["pur"]?det:det.slice(0,15);
+    h+=`<h2 style="font-size:13.5px;margin:14px 0 6px">仕入明細（新しい順）</h2><table><thead><tr><th>仕入日</th><th>購入先</th><th>商品</th><th>原価</th><th>数量</th><th>金額</th></tr></thead><tbody>`;
+    show.forEach(r=>{ h+=`<tr><td style="white-space:nowrap">${esc(r.date||"")}</td><td>${esc(r.vendor||"")}</td><td style="white-space:normal">${esc(r.name||"")}${r.color?`<span class="muted"> / ${esc(r.color)}</span>`:""}</td><td>${yen(r.cost)}</td><td>${num(r.qty)}個</td><td>${yen(r.amount)}</td></tr>`; });
+    h+=`</tbody></table>`+moreBtn("pur",det.length);
+  }
+  body.innerHTML=h;
+  body.querySelectorAll('[data-exp]').forEach(b=>b.addEventListener("click",()=>{expanded["pur"]=!expanded["pur"]; renderPurchases();}));
+}
+
+let brandExpand={};
+function renderBrandExplorer(){
+  const el=document.getElementById("brandExpBody"); if(!el) return;
+  const q=(document.getElementById("brandSearch")?document.getElementById("brandSearch").value:"").trim().toLowerCase();
+  const prods=DATA.products||[];
+  const ttItems=(DATA.ttStock&&DATA.ttStock.items)||[];
+  const norm=s=>String(s||"").replace(/[\s　]/g,"").toLowerCase();
+  const stockByName={}; ttItems.forEach(it=>{ if(it.title) stockByName[norm(it.title)]=(it.stock||0); });
+  const brandOf=p=>((p.brand||p.vendor||"不明").trim()||"不明");
+  const groups={};
+  prods.forEach(p=>{ const b=brandOf(p); const g=groups[b]||(groups[b]={brand:b,net:0,units:0,products:[]}); g.net+=p.net||0; g.units+=p.units||0; const st=stockByName[norm(p.name)]; g.products.push({name:p.name,net:p.net||0,units:p.units||0,stock:(st!=null?st:null),isSd:!!p.isSd}); });
+  let arr=Object.values(groups).map(g=>{ g.stock=g.products.reduce((s,x)=>s+(x.stock||0),0); g.hasStock=g.products.some(x=>x.stock!=null); g.pcount=g.products.length; g.products.sort((a,b)=>b.net-a.net); return g; }).sort((a,b)=>b.net-a.net);
+  if(q) arr=arr.filter(g=>g.brand.toLowerCase().includes(q));
+  if(!arr.length){ el.innerHTML=`<div class="muted">該当ブランドがありません。</div>`; return; }
+  let h=`<table><thead><tr><th>ブランド（推定）</th><th>売上</th><th>販売数</th><th>商品数</th><th>在庫(合計)</th><th></th></tr></thead><tbody>`;
+  arr.forEach(g=>{ const open=!!brandExpand[g.brand];
+    h+=`<tr class="brow" data-b="${esc(g.brand)}" style="cursor:pointer"><td style="font-weight:600">${esc(g.brand)}</td><td>${yen(g.net)}</td><td>${num(g.units)}個</td><td>${num(g.pcount)}</td><td>${g.hasStock?num(g.stock)+"個":"—"}</td><td><span class="drillbtn">${open?"閉じる ▲":"商品を見る ▾"}</span></td></tr>`;
+    if(open){ h+=`<tr><td colspan="6" style="padding:6px 8px;background:#faf9f7"><table style="margin:0"><thead><tr><th>商品</th><th>売上</th><th>販売数</th><th>在庫</th></tr></thead><tbody>`;
+      g.products.forEach(x=>{ h+=`<tr><td style="white-space:normal">${esc(x.name)}${x.isSd?'<span class="muted" style="font-size:10px"> ·SD</span>':''}</td><td>${yen(x.net)}</td><td>${num(x.units)}個</td><td>${x.stock!=null?num(x.stock)+"個":"—"}</td></tr>`; });
+      h+=`</tbody></table></td></tr>`; }
+  });
+  el.innerHTML=h+`</tbody></table>`;
+  el.querySelectorAll('tr.brow').forEach(tr=>tr.addEventListener("click",()=>{ const b=tr.dataset.b; brandExpand[b]=!brandExpand[b]; renderBrandExplorer(); }));
+}
+
+function renderProductCancel(){
+  let rows=(DATA.productCancel||[]);
+  const total=rows.length;
+  if(!total){ document.getElementById("cancelBody").innerHTML=`<div class="muted">この期間にキャンセルはありません。</div>`; return; }
+  const show=expanded["cancel"]?rows:rows.slice(0,10);
+  const maxRate=Math.max(...rows.map(r=>r.rate),0.0001);
+  let h=`<table><thead><tr><th>商品</th><th>キャンセル率</th><th>キャンセル明細</th><th>有効明細</th></tr></thead><tbody>`;
+  show.forEach(r=>{ const w=Math.max(3,Math.round(r.rate/maxRate*70)); const col=r.rate>=0.3?"#cc3b30":(r.rate>=0.15?"#d4861f":"#9a9a9a");
+    h+=`<tr><td>${esc(r.name)}</td><td style="font-weight:700;color:${col}">${pct(r.rate)} <span class="ratebar" style="width:${w}px;background:${col}"></span></td><td>${num(r.cancelled)}</td><td>${num(r.ordered)}</td></tr>`; });
+  document.getElementById("cancelBody").innerHTML=h+`</tbody></table>`+moreBtn("cancel",total);
+  document.querySelectorAll('#cancelBody [data-exp]').forEach(b=>b.addEventListener("click",()=>{expanded["cancel"]=!expanded["cancel"]; renderProductCancel();}));
+}
+
+let newpSort={key:"net",dir:-1}, reppSort={key:"net",dir:-1};
+function sortProdRows(rows,st){ const k=st.key,d=st.dir; return rows.slice().sort((a,b)=>{ const x=a[k],y=b[k]; return (typeof x==="string"?(x<y?-1:x>y?1:0):((x||0)-(y||0)))*d; }); }
+function prodHead(st,cols){ const ar=k=>st.key===k?`<span class="arrow">${st.dir<0?"▼":"▲"}</span>`:'<span class="arrow"></span>'; return "<tr>"+cols.map(c=>`<th class="sortable" data-k="${c.k}">${c.label} ${ar(c.k)}</th>`).join("")+"</tr>"; }
+function renderNewProducts(){
+  const q=(document.getElementById("newProdSearch").value||"").trim().toLowerCase();
+  let rows=(DATA.newCustomerProducts||[]).filter(r=>!q||r.name.toLowerCase().includes(q));
+  const total=rows.length;
+  if(!total){ document.getElementById("newProdBody").innerHTML=`<div class="muted">この期間に新規顧客の購入はありません。</div>`; return; }
+  rows=sortProdRows(rows,newpSort);
+  const show=expanded["newp"]?rows:rows.slice(0,10);
+  const cols=[{k:"name",label:"商品"},{k:"net",label:"新規の純売上"},{k:"units",label:"販売個数"},{k:"orders",label:"新規注文数"}];
+  let h=`<table><thead>${prodHead(newpSort,cols)}</thead><tbody>`;
+  show.forEach((r,i)=>{ h+=`<tr><td>${esc(r.name)}${i===0&&!q&&!expanded["newp"]&&newpSort.key==="net"&&newpSort.dir<0?'<span class="hero">新規1位</span>':''}</td><td>${yen(r.net)}</td><td>${num(r.units)}個</td><td>${num(r.orders)}</td></tr>`; });
+  document.getElementById("newProdBody").innerHTML=h+`</tbody></table>`+moreBtn("newp",total);
+  document.querySelectorAll('#newProdBody th.sortable').forEach(th=>th.addEventListener("click",()=>{ const k=th.dataset.k; if(newpSort.key===k)newpSort.dir*=-1; else{newpSort.key=k; newpSort.dir=k==="name"?1:-1;} renderNewProducts(); }));
+  document.querySelectorAll('#newProdBody [data-exp]').forEach(b=>b.addEventListener("click",()=>{expanded["newp"]=!expanded["newp"]; renderNewProducts();}));
+}
+
+function renderRepeatProducts(){
+  const q=(document.getElementById("repProdSearch").value||"").trim().toLowerCase();
+  let rows=(DATA.repeatCustomerProducts||[]).filter(r=>!q||r.name.toLowerCase().includes(q));
+  const total=rows.length;
+  if(!total){ document.getElementById("repProdBody").innerHTML=`<div class="muted">この期間にリピート購入はありません。</div>`; return; }
+  rows=sortProdRows(rows,reppSort);
+  const show=expanded["repp"]?rows:rows.slice(0,10);
+  const cols=[{k:"name",label:"商品"},{k:"net",label:"リピートの純売上"},{k:"units",label:"販売個数"},{k:"orders",label:"リピート注文数"}];
+  let h=`<table><thead>${prodHead(reppSort,cols)}</thead><tbody>`;
+  show.forEach((r,i)=>{ h+=`<tr><td>${esc(r.name)}${i===0&&!q&&!expanded["repp"]&&reppSort.key==="net"&&reppSort.dir<0?'<span class="hero">リピート1位</span>':''}</td><td>${yen(r.net)}</td><td>${num(r.units)}個</td><td>${num(r.orders)}</td></tr>`; });
+  document.getElementById("repProdBody").innerHTML=h+`</tbody></table>`+moreBtn("repp",total);
+  document.querySelectorAll('#repProdBody th.sortable').forEach(th=>th.addEventListener("click",()=>{ const k=th.dataset.k; if(reppSort.key===k)reppSort.dir*=-1; else{reppSort.key=k; reppSort.dir=k==="name"?1:-1;} renderRepeatProducts(); }));
+  document.querySelectorAll('#repProdBody [data-exp]').forEach(b=>b.addEventListener("click",()=>{expanded["repp"]=!expanded["repp"]; renderRepeatProducts();}));
+}
+
+function renderCustomers(){
+  const c=DATA.customers||{};
+  const t=DATA.totals||{};
+  document.getElementById("cOrders").textContent=c.available?num(t.orders)+"件":"—";
+  document.getElementById("cFirst").textContent=c.available?num(c.firstOrders)+"件":"—";
+  document.getElementById("cFirstD").textContent=c.available?("新規購入割合 "+pct(c.newOrderRatio)):"新規購入割合";
+  document.getElementById("cRepeatOrders").textContent=c.available?num(c.repeatOrders)+"件":"—";
+  document.getElementById("cRepeatD").textContent=c.available?("リピート購入率 "+pct(c.repeatOrderRate)):"リピート購入率";
+  document.getElementById("cRate").textContent=c.available?pct(c.repeatOrderRate):"—";
+  document.getElementById("cNew").textContent=c.available?num(c.newCount)+"人":"—";
+  document.getElementById("cExist").textContent=c.available?num(c.existingCount)+"人":"—";
+  document.getElementById("cNewRatio").textContent=c.available?pct(c.newRatio):"—";
+  document.getElementById("cNewSales").textContent=yen(c.newSales||0);
+  document.getElementById("cNewAov").textContent=yen(c.newAov||0);
+  document.getElementById("cNewOrderMed").textContent=yen(c.newOrderMedian||0);
+  document.getElementById("cNewUnits").textContent=num(c.newUnits||0)+"個";
+  document.getElementById("cNewCustAvg").textContent=yen(c.newCustAvg||0);
+  document.getElementById("cNewCustN").textContent=(c.newCustN||0)+"人の平均";
+  document.getElementById("cNewCustMed").textContent=yen(c.newCustMedian||0);
+  document.getElementById("cRepSales").textContent=yen(c.repSales||0);
+  document.getElementById("cRepAov").textContent=yen(c.repAov||0);
+  document.getElementById("cRepUnits").textContent=num(c.repUnits||0)+"個";
+  destroy("newExist");
+  charts.newExist=new Chart(document.getElementById("newExistChart"),{type:"doughnut",data:{labels:["新規","既存"],datasets:[{data:[c.newCount||0,c.existingCount||0],backgroundColor:[PAL.new,PAL.bar]}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{position:"bottom",labels:{boxWidth:12,font:{size:11}}}}}});
+  setDot("dotNewEx","ok");
+  renderCancelCustomers();
+  renderReturnCustomers();
+  renderAcquisition();
+  renderNewProducts(); renderRepeatProducts();
+}
+
+function renderReturnCustomers(){
+  const rc=DATA.returnCustomers||{};
+  document.getElementById("rcOrders").textContent=num(rc.monthReturnOrders||0)+"件";
+  document.getElementById("rcBuyers").textContent=num(rc.monthReturnBuyers||0)+"人";
+  document.getElementById("rcRepeat").textContent=num(rc.monthRepeatBuyers||0)+"人";
+  const list=rc.list||[]; const el=document.getElementById("rcBody");
+  if(!list.length){ el.innerHTML=`<div class="muted">この期間に発送後の返品・返金はありません。</div>`; return; }
+  let h=`<table class="cctbl"><thead><tr><th style="width:32px">#</th><th>購入者名</th><th>TikTok内部ID（数値）</th><th style="width:80px">今月返品</th><th style="width:80px">累計返品</th><th style="width:96px">今月返金額</th><th style="width:110px">注文ID</th></tr></thead><tbody>`;
+  list.forEach(r=>{ const oids=(r.orderIds||[]);
+    const oidCell=oids.length?`<details class="oid"><summary>${num(oids.length)}件 ▾</summary><div>${oids.map(esc).join("<br>")}</div></details>`:`<span class="muted">—</span>`;
+    const nm=r.name?esc(r.name):'<span class="muted">（名前なし）</span>';
+    h+=`<tr><td>${r.rank}</td><td style="font-weight:600">${nm}</td><td><code style="font-size:11px;word-break:break-all">${esc(r.userId||"")}</code></td><td style="font-weight:700;color:#cc3b30">${num(r.monthCount)}回</td><td style="font-weight:700">${num(r.totalCount)}回</td><td>${yen(r.monthAmt||0)}</td><td>${oidCell}</td></tr>`; });
+  el.innerHTML=h+`</tbody></table>`;
+}
+
+function renderAcquisition(){
+  const prods=(DATA.products||[]).map(p=>{ const nb=p.newBuyers||0, eb=p.existBuyers||0; const unit=p.units?Math.round(p.net/p.units):0; return {name:p.name, nb, eb, unit, net:p.net||0, units:p.units||0, rate:(nb+eb)?nb/(nb+eb):0, brand:(p.brand||p.vendor||"").trim()}; });
+  const withNew=prods.filter(p=>p.nb>0).sort((a,b)=> b.nb-a.nb || b.rate-a.rate);
+  const sumEl=document.getElementById("acqSummary"), insEl=document.getElementById("acqInsight"), bEl=document.getElementById("acqBody");
+  if(!withNew.length){ sumEl.innerHTML=""; insEl.innerHTML=""; bEl.innerHTML=`<div class="muted">この期間に新規顧客の購入がありません。</div>`; return; }
+  const totNb=withNew.reduce((s,p)=>s+p.nb,0);
+  const wAvgUnit=Math.round(withNew.reduce((s,p)=>s+p.unit*p.nb,0)/(totNb||1)); // 新規が買った1点の加重平均単価
+  const bBrand={}; withNew.forEach(p=>{ const b=p.brand||"不明"; bBrand[b]=(bBrand[b]||0)+p.nb; });
+  const topBrands=Object.entries(bBrand).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  const kpi=(l,v,d)=>`<div class="kpi"><div class="label">${l}</div><div class="val" style="font-size:17px">${v}</div><div class="delta">${d||""}</div></div>`;
+  sumEl.innerHTML=kpi("新規が入った商品数", num(withNew.length)+"品", "新規顧客が最初に買った商品の種類数")
+    +kpi("新規に効く商品の平均価格", yen(wAvgUnit), "商品1点あたりの価格（注文額ではない）")
+    +kpi("新規に効くブランド", topBrands[0]?esc(topBrands[0][0]):"—", topBrands[0]?`新規${num(topBrands[0][1])}人が購入`:"");
+  const hero=withNew[0];
+  const hiRate=withNew.filter(p=>p.nb>=2).slice().sort((a,b)=>b.rate-a.rate)[0]; // 新規率が高い＝新規専用の入口
+  insEl.innerHTML=`<div class="ins"><div class="h">既存商品で新規を狙うなら</div><div class="b"><b>${esc(hero.name)}</b>（新規 ${num(hero.nb)}人・新規率 ${pct(hero.rate)}）を新規向けライブの主役に。`
+    +(hiRate?` 特に <b>${esc(hiRate.name)}</b> は新規率 ${pct(hiRate.rate)} と“新規専用の入口”になりやすい商品です。`:"")+`</div></div>`
+    +`<div class="ins" style="border-color:#e7dcc6;background:#fbf7ef"><div class="h" style="color:#8a5b00">新規で仕入れる（新商品）なら</div><div class="b">新規が入りやすいのは <b>商品1点 ${yen(wAvgUnit)}前後</b>の価格帯${topBrands.length?`／<b>${topBrands.map(b=>esc(b[0])).join("・")}</b>系`:""}。この特性に近い商品を新規獲得ライブの目玉に据えると刺さりやすいです。</div></div>`;
+  const show=expanded["acq"]?withNew:withNew.slice(0,12);
+  let h=`<table><thead><tr><th>商品</th><th>新規顧客(人)</th><th>新規率</th><th>単価</th><th>純売上</th><th>ブランド(推定)</th></tr></thead><tbody>`;
+  show.forEach((p,i)=>{ h+=`<tr><td>${esc(p.name)}${i===0?'<span class="hero">新規獲得1位</span>':''}</td><td style="font-weight:700;color:#1d5b3a">${num(p.nb)}人</td><td>${pct(p.rate)}</td><td>${yen(p.unit)}</td><td>${yen(p.net)}</td><td>${esc(p.brand||"—")}</td></tr>`; });
+  bEl.innerHTML=h+`</tbody></table>`+moreBtn("acq",withNew.length);
+  bEl.querySelectorAll('[data-exp]').forEach(b=>b.addEventListener("click",()=>{expanded["acq"]=!expanded["acq"]; renderAcquisition();}));
+}
+
+function renderCancelCustomers(){
+  const x=DATA.cancellations||{};
+  document.getElementById("ccCount").textContent=num(x.count||0)+"件";
+  document.getElementById("ccRate").textContent="キャンセル率 "+pct(x.rate||0);
+  document.getElementById("ccNew").textContent=num(x.newCancels||0)+"件";
+  document.getElementById("ccNewR").textContent="新規割合 "+pct(x.newCancelRatio||0);
+  document.getElementById("ccExist").textContent=num(x.existCancels||0)+"件";
+  document.getElementById("ccExistR").textContent="既存割合 "+pct(x.existCancelRatio||0);
+  document.getElementById("ccRepeat").textContent=num(x.repeatCancelerCount||0)+"人";
+  document.getElementById("ccRepeatD").textContent="累計"+num(x.repeatCancelOrders||0)+"件キャンセル";
+  const list=x.list||[];
+  let h="";
+  const np=x.noPurchaseCancels||0;
+  if(np){ h+=`<p class="desc" style="margin:0 0 8px">※ うち ${num(np)}件は有効購入のない顧客（キャンセルのみ）のキャンセルです。</p>`; }
+  if(!list.length){
+    h+=`<div class="muted">この期間に同一顧客の2回以上のキャンセルはありません。</div>`;
+  }else{
+    h+=`<table class="cctbl"><thead><tr><th style="width:32px">#</th><th>購入者名</th><th>購入者ID（TikTokアカウント）</th><th style="width:64px">回数</th><th style="width:96px">金額</th><th style="width:120px">注文ID</th></tr></thead><tbody>`;
+    list.forEach(r=>{ const oids=(r.orderIds||[]);
+      const oidCell=oids.length?`<details class="oid"><summary>${num(oids.length)}件 ▾</summary><div>${oids.map(esc).join("<br>")}</div></details>`:`<span class="muted">—</span>`;
+      h+=`<tr><td>${r.rank}</td><td style="font-weight:600">${esc(r.name||"(名前なし)")}</td><td><code style="font-size:11px;word-break:break-all">${esc(r.userId||"")}</code></td><td style="font-weight:700;color:#cc3b30">${num(r.count)}回</td><td>${yen(r.amount||0)}</td><td>${oidCell}</td></tr>`; });
+    h+=`</tbody></table>`;
+  }
+  document.getElementById("ccBody").innerHTML=h;
+}
+
+let dailyUnit="day", dailySort={key:"key",dir:-1};
+function bucketRange(unit,key){
+  if(unit==="day") return {from:key,to:key};
+  if(unit==="week") return {from:key,to:addDays(key,6)};
+  const from=key+"-01"; const d=new Date(from+"T00:00:00Z"); d.setUTCMonth(d.getUTCMonth()+1); d.setUTCDate(0);
+  return {from,to:d.toISOString().slice(0,10)};
+}
+function secToHm(sec){ sec=Math.round(sec||0); const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60); return h>0?(h+"時間"+(m?m+"分":"")):(m+"分"); }
+function renderDaily(){
+  const raw=DATA.days||[];
+  // ばーびー配信時間ルックアップ
+  const lhDays={}; ((DATA.trends&&DATA.trends.daysAll)||[]).forEach(d=>{ lhDays[d.key]={sec:d.liveSec||0,cnt:d.liveCount||0}; });
+  const lhMon={}; ((DATA.trends&&DATA.trends.monthly)||[]).forEach(m=>{ lhMon[m.key]={sec:m.liveSec||0,cnt:m.liveCount||0,days:m.liveDays||0,unknown:!!m.liveDaysUnknown,has:m.liveHasData}; });
+  const meta=(DATA.trends&&DATA.trends.liveHoursMeta)||{};
+  // 選択期間の範囲。配信はあったが注文ゼロの日も含めて集計するため、期間内の配信日も対象にする。
+  const since=(DATA.range&&DATA.range.since)||"", until=(DATA.range&&DATA.range.until)||"";
+  const inPeriod=(k)=>(!since||k>=since)&&(!until||k<=until);
+  const salesByDate={}; raw.forEach(d=>{ salesByDate[d.date]=d; });
+  // 対象日＝注文があった日 ∪ 配信があった日（期間内）
+  const dayKeys=new Set(raw.map(d=>d.date));
+  Object.keys(lhDays).forEach(k=>{ if(inPeriod(k)&&(lhDays[k].sec>0)) dayKeys.add(k); });
+  const dayRow=(k)=>{ const d=salesByDate[k]||{sales:0,orders:0,units:0}; const lh=lhDays[k]||{}; return {key:k,sales:d.sales||0,orders:d.orders||0,units:d.units||0,liveSec:lh.sec||0,liveCnt:lh.cnt||0,liveDays:(lh.sec>0?1:0),unknown:false}; };
+  let rows;
+  if(dailyUnit==="day"){
+    rows=[...dayKeys].sort().map(dayRow);
+  }else if(dailyUnit==="week"){
+    const map={};
+    [...dayKeys].forEach(dt=>{ const k=weekStartJS(dt); const b=map[k]||(map[k]={key:k,sales:0,orders:0,units:0,liveSec:0,liveCnt:0,liveDays:0,unknown:false}); const d=salesByDate[dt]; if(d){ b.sales+=d.sales; b.orders+=d.orders; b.units+=d.units; } const lh=lhDays[dt]; if(lh){ b.liveSec+=lh.sec||0; b.liveCnt+=lh.cnt||0; if((lh.sec||0)>0)b.liveDays++; } });
+    rows=Object.values(map).sort((a,b)=>a.key<b.key?-1:1);
+  }else{ // month: 月次背景データを使用
+    const map={};
+    raw.forEach(d=>{ const k=d.date.slice(0,7); const b=map[k]||(map[k]={key:k,sales:0,orders:0,units:0}); b.sales+=d.sales; b.orders+=d.orders; b.units+=d.units; });
+    rows=Object.values(map).sort((a,b)=>a.key<b.key?-1:1).map(b=>{ const lh=lhMon[b.key]||{}; return {...b,liveSec:lh.sec||0,liveCnt:lh.cnt||0,liveDays:lh.days||0,unknown:!!lh.unknown}; });
+  }
+  const fmtMD=(ds)=>{ const p=String(ds).split("-"); return p.length>=3?(+p[1])+"/"+(+p[2]):ds; };
+  const weekLabel=(k)=>fmtMD(k)+"〜"+fmtMD(addDays(k,6));
+  const rowLabel=(r)=>dailyUnit==="month"?r.key:(dailyUnit==="week"?weekLabel(r.key):r.key);
+  const labels=rows.map(r=>dailyUnit==="month"?r.key:(dailyUnit==="week"?weekLabel(r.key):r.key.slice(5)));
+  CMP_MARKS["dailyChart"]=loadCmps().map(c=>{ const key=dailyUnit==="day"?c.date:(dailyUnit==="week"?weekStartJS(c.date):c.date.slice(0,7)); return {idx:rows.findIndex(r=>r.key===key),label:c.text}; }).filter(m=>m.idx>=0);
+  // サマリー指標（表示中の期間合計）
+  const tSales=rows.reduce((s,r)=>s+r.sales,0), tSec=rows.reduce((s,r)=>s+(r.liveSec||0),0);
+  const tDays=rows.reduce((s,r)=>s+(r.liveDays||0),0), tCnt=rows.reduce((s,r)=>s+(r.liveCnt||0),0);
+  const anyUnknown=rows.some(r=>r.unknown), hrs=tSec/3600;
+  const divLabel=anyUnknown?"配信回数(LIVE回数)":"配信日数";
+  const divVal=anyUnknown?tCnt:tDays;
+  const kpi=(lbl,val,d,hi)=>`<div class="kpi"${hi?' style="background:#f3f7f4;border-color:#cfe3d6"':''}><div class="label">${lbl}</div><div class="val" style="font-size:17px${hi?';color:#1d5b3a':''}">${val}</div><div class="delta">${d||""}</div></div>`;
+  document.getElementById("liveSummary").innerHTML=
+    kpi("配信時間 合計", tSec>0?secToHm(tSec):"—", "ばーびー @.choice2")+
+    kpi(divLabel, divVal?num(divVal)+(anyUnknown?"回":"日"):"—", "")+
+    kpi("期間売上", yen(tSales), "")+
+    kpi("配信1時間あたり売上", tSec>0?yen(Math.round(tSales/hrs)):"—", "売上 ÷ 配信時間", true)+
+    kpi(anyUnknown?"配信1回あたり売上":"配信1日あたり売上", divVal?yen(Math.round(tSales/divVal)):"—", "売上 ÷ "+divLabel);
+  // 注記（データ範囲）
+  const upd=meta.updated?new Date(meta.updated).toLocaleDateString("ja-JP"):"—";
+  document.getElementById("liveNote").innerHTML=
+    (dailyUnit==="month"
+      ? `配信時間は <b>月次（Backstage実数）</b> を表示中。日別/週別は日次データが揃い次第反映されます。`
+      : (meta.hasDaily? `配信時間は日次データを表示中（最終: ${esc(meta.latestDaily||"")}）。`
+        : `日別/週別の配信時間データはまだありません（日次は今後の自動更新で順次追加）。<b>「月別」</b>に切り替えると月次の配信時間を確認できます。`))
+    + ` ／ 配信時間データ更新: ${esc(upd)}`;
+  destroy("daily");
+  charts.daily=new Chart(document.getElementById("dailyChart"),{data:{labels,datasets:[
+    {type:"bar",label:"売上",data:rows.map(r=>r.sales),backgroundColor:PAL.bar,borderRadius:3,yAxisID:"y",order:2},
+    {type:"line",label:"配信時間(h)",data:rows.map(r=>+( (r.liveSec||0)/3600).toFixed(2)),borderColor:"#c79a3b",backgroundColor:"#c79a3b",borderWidth:2.5,tension:.3,yAxisID:"y1",pointRadius:2,spanGaps:true,order:1}
+  ]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{position:"bottom",labels:{boxWidth:12,font:{size:11}}},
+    tooltip:{callbacks:{afterBody:(items)=>{ const i=items[0].dataIndex; const r=rows[i]; if(!r||!(r.liveSec>0))return ""; return "配信 "+secToHm(r.liveSec)+(r.liveCnt?`（${r.unknown?r.liveCnt+"回":r.liveDays+"日 / "+r.liveCnt+"回"}）`:""); }}}},
+    scales:{x:{grid:{display:false},ticks:{font:{size:9}}},y:{min:0,beginAtZero:true,title:{display:true,text:"売上",font:{size:10}}},y1:{position:"right",min:0,beginAtZero:true,grid:{display:false},title:{display:true,text:"配信時間(h)",font:{size:10}}}}}});
+  // 列クリックで並べ替え可能な表（何日・どの週が売れているか等を把握しやすく）
+  rows.forEach(r=>{ r.perHVal=(r.liveSec>0)? r.sales/(r.liveSec/3600) : -1; });
+  const sr=dailySort, sdir=sr.dir;
+  const sorted=rows.slice().sort((a,b)=>{ const x=a[sr.key],y=b[sr.key]; if(sr.key==="key"){return (x<y?-1:x>y?1:0)*sdir;} return ((x||0)-(y||0))*sdir; }).slice(0,120);
+  const hdrKey=dailyUnit==="day"?"日付":(dailyUnit==="week"?"週（期間）":"月");
+  // 常時表示の並び替えボタン（最初から並べ替え可能と分かるように）
+  const sortCols=[{k:"key",label:hdrKey},{k:"sales",label:"売上"},{k:"liveSec",label:"配信時間"},{k:"perHVal",label:"配信1hあたり"},{k:"orders",label:"注文"},{k:"units",label:"販売個数"}];
+  const sortBar=`<div class="sortbar"><span class="sortbar-label">🔀 並び替え:</span>`+sortCols.map(c=>`<button class="sortpill${sr.key===c.k?' on':''}" data-k="${c.k}">${esc(c.label)}${sr.key===c.k?(sdir<0?" ↓":" ↑"):""}</button>`).join("")+`</div>`;
+  const dArrow=k=>sr.key===k?`<span class="arrow">${sdir<0?"▼":"▲"}</span>`:'<span class="arrow"></span>';
+  let h=`<table><thead><tr>`
+    +`<th class="sortable" data-k="key">${hdrKey} ${dArrow("key")}</th>`
+    +`<th class="sortable" data-k="sales">売上 ${dArrow("sales")}</th>`
+    +`<th class="sortable" data-k="liveSec">配信時間 ${dArrow("liveSec")}</th>`
+    +`<th class="sortable" data-k="perHVal">配信1hあたり ${dArrow("perHVal")}</th>`
+    +`<th class="sortable" data-k="orders">注文 ${dArrow("orders")}</th>`
+    +`<th class="sortable" data-k="units">販売個数 ${dArrow("units")}</th>`
+    +`<th></th></tr></thead><tbody>`;
+  sorted.forEach(r=>{ const perH=(r.liveSec>0)?yen(Math.round(r.perHVal)):'—'; h+=`<tr data-bkey="${esc(r.key)}" style="cursor:pointer"><td style="white-space:nowrap">${esc(rowLabel(r))}</td><td>${yen(r.sales)}</td><td>${r.liveSec>0?secToHm(r.liveSec):'—'}</td><td style="font-weight:700;color:#2f6f4f">${perH}</td><td>${num(r.orders)}</td><td>${num(r.units)}個</td><td><span class="drillbtn">商品を見る ›</span></td></tr>`; });
+  document.getElementById("dailyBody").innerHTML=sortBar+h+`</tbody></table>`;
+  const dailySortClick=(k)=>{ if(dailySort.key===k)dailySort.dir*=-1; else{dailySort.key=k; dailySort.dir=(k==="key")?-1:-1;} renderDaily(); };
+  document.querySelectorAll('#dailyBody th.sortable').forEach(th=>th.addEventListener("click",()=>dailySortClick(th.dataset.k)));
+  document.querySelectorAll('#dailyBody .sortpill').forEach(b=>b.addEventListener("click",()=>dailySortClick(b.dataset.k)));
+  document.querySelectorAll('#dailyBody tr[data-bkey]').forEach(tr=>tr.addEventListener("click",()=>{
+    document.querySelectorAll('#dailyBody tr[data-bkey]').forEach(x=>x.classList.remove("rowActive"));
+    tr.classList.add("rowActive");
+    drillDaily(tr.dataset.bkey);
+  }));
+  setDot("dotDaily","ok");
+}
+function renderHourEfficiency(){
+  const el=document.getElementById("hourEffBody"); if(!el) return;
+  const range=DATA.range||{}; const since=range.since||"", until=range.until||since;
+  const mins=new Array(24).fill(0);
+  loadShifts().forEach(s=>{ if(!(s.date>=since&&s.date<=until))return; if(!s.start||!s.end)return; const a=s.start.split(":").map(Number),b=s.end.split(":").map(Number); let st=a[0]*60+a[1],en=b[0]*60+b[1]; if(en<=st)en+=1440; for(let t=st;t<en;t++) mins[(Math.floor(t/60))%24]++; });
+  const hrs=DATA.hours||[]; const rows=[];
+  for(let H=0;H<24;H++){ if(mins[H]<=0)continue; const sales=(hrs[H]&&hrs[H].sales)||0; rows.push({hour:H,mins:mins[H],sales,perH:Math.round(sales/(mins[H]/60))}); }
+  if(!rows.length){ el.innerHTML=`<div class="muted">表示期間に配信シフト（開始/終了）の入力がありません。「配信シフト」タブで登録してください。</div>`; return; }
+  rows.sort((a,b)=>b.perH-a.perH);
+  const max=Math.max(...rows.map(r=>r.perH),1);
+  let h=`<table><thead><tr><th>時間帯(JST)</th><th>配信1hあたり売上</th><th>配信時間</th><th>その時間帯の売上</th></tr></thead><tbody>`;
+  rows.forEach((r,i)=>{ const w=Math.max(4,Math.round(r.perH/max*80)); h+=`<tr><td>${r.hour}時台${i===0?' <span class="hero">最効率</span>':''}</td><td style="font-weight:700;color:#2f6f4f">${yen(r.perH)} <span class="ratebar" style="width:${w}px;background:#2f6f4f"></span></td><td>${(r.mins/60).toFixed(1)}h</td><td>${yen(r.sales)}</td></tr>`; });
+  el.innerHTML=h+`</tbody></table>`;
+}
+function renderDowEfficiency(){
+  const el=document.getElementById("dowEffBody"); if(!el) return;
+  const days=(DATA.trends&&DATA.trends.daysAll)||[];
+  const ag={};
+  days.forEach(d=>{ if(!(d.liveSec>0)) return; const dow=new Date(d.key+"T00:00:00Z").getUTCDay(); const a=ag[dow]||(ag[dow]={sales:0,sec:0,days:0}); a.sales+=d.sales||0; a.sec+=d.liveSec||0; a.days++; });
+  const rows=Object.keys(ag).map(k=>({dow:+k,sales:ag[k].sales,sec:ag[k].sec,days:ag[k].days,perH:ag[k].sec>0?Math.round(ag[k].sales/(ag[k].sec/3600)):0}));
+  if(!rows.length){ el.innerHTML=`<div class="muted">日次の配信時間データがまだありません（明日以降の自動更新で順次反映されます）。</div>`; return; }
+  rows.sort((a,b)=>b.perH-a.perH);
+  const max=Math.max(...rows.map(r=>r.perH),1);
+  let h=`<table><thead><tr><th>曜日</th><th>配信1hあたり売上</th><th>配信時間</th><th>売上</th><th>配信日数</th></tr></thead><tbody>`;
+  rows.forEach((r,i)=>{ const w=Math.max(4,Math.round(r.perH/max*80)); h+=`<tr><td>${DOW[r.dow]}曜${i===0?' <span class="hero">最効率</span>':''}</td><td style="font-weight:700;color:#2f6f4f">${yen(r.perH)} <span class="ratebar" style="width:${w}px;background:#2f6f4f"></span></td><td>${secToHm(r.sec)}</td><td>${yen(r.sales)}</td><td>${num(r.days)}日</td></tr>`; });
+  el.innerHTML=h+`</tbody></table>`;
+}
+let drillReq=0;
+async function drillDaily(key){
+  const box=document.getElementById("dailyDrill");
+  const R=bucketRange(dailyUnit,key);
+  const label=dailyUnit==="day"?key:(dailyUnit==="week"?`${R.from}〜${R.to}（週）`:`${key}（月）`);
+  box.innerHTML=`<div class="ins"><div class="h">${esc(label)} に売れた商品</div><div class="loading">読み込み中…</div></div>`;
+  // クリックした手応えが分かるよう、結果エリアへスムーズスクロール
+  try{ box.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){ box.scrollIntoView(); }
+  const my=++drillReq;
+  let res;
+  try{
+    const ctrl=("AbortController"in window)?new AbortController():null;
+    const to=ctrl?setTimeout(()=>ctrl.abort(),25000):null;
+    const r=await fetch("/api/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"dashboard",light:true,since:R.from,until:R.to}),signal:ctrl?ctrl.signal:undefined});
+    if(to)clearTimeout(to);
+    res=await r.json();
+  }
+  catch(e){ if(my===drillReq){ const msg=(e&&e.name==="AbortError")?"時間がかかりすぎたため中断しました。もう一度お試しください。":("通信エラー: "+String(e)); box.innerHTML=`<div class="err">${esc(msg)} <button class="mini" id="drillRetry">再試行</button></div>`; const rb=document.getElementById("drillRetry"); if(rb)rb.addEventListener("click",()=>drillDaily(key)); } return; }
+  if(my!==drillReq) return;
+  if(res.error){ box.innerHTML=`<div class="err">エラー: ${esc(res.error)}</div>`; return; }
+  const ps=(res.products||[]).slice(0,15);
+  let h=`<div class="card" style="margin:0"><h2 style="font-size:14px">🛍️ ${esc(label)} に売れた商品 <span class="muted" style="font-weight:400;font-size:12px">（売上 ${yen((res.totals&&res.totals.sales)||0)} / 注文 ${num((res.totals&&res.totals.orders)||0)}）</span></h2>`;
+  if(!ps.length){ h+=`<div class="muted">この期間の販売はありません。</div></div>`; box.innerHTML=h; return; }
+  h+=`<table><thead><tr><th>商品</th><th>純売上</th><th>販売個数</th><th>注文数</th><th>新規/既存(人)</th></tr></thead><tbody>`;
+  ps.forEach((p,i)=>{ h+=`<tr><td>${esc(p.name)}${i===0?'<span class="hero">1位</span>':''}</td><td>${yen(p.net)}</td><td>${num(p.units)}個</td><td>${num(p.orders)}</td><td>${num(p.newBuyers)}/${num(p.existBuyers)}</td></tr>`; });
+  h+=`</tbody></table><div class="morebtn"><button class="mini" id="drillClose">閉じる</button></div></div>`;
+  box.innerHTML=h;
+  document.getElementById("drillClose").addEventListener("click",()=>{ box.innerHTML=""; });
+}
+
+function renderTiming(){
+  const hrs=DATA.hours||[], dows=DATA.dows||[];
+  const val=o=>timeMetric==="orders"?o.orders:o.sales;
+  const fmt=v=>timeMetric==="orders"?num(v):yen(v);
+  destroy("hour");
+  charts.hour=new Chart(document.getElementById("hourChart"),{type:"bar",data:{labels:hrs.map(h=>h.hour+"時"),datasets:[{label:timeMetric==="orders"?"注文数":"売上",data:hrs.map(val),backgroundColor:PAL.bar,borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{font:{size:9}}},y:{min:0,beginAtZero:true}}}});
+  const topH=hrs.slice().sort((a,b)=>val(b)-val(a))[0];
+  document.getElementById("hourCallout").innerHTML=topH?`最も多いのは <b>${topH.hour}時台</b>（${fmt(val(topH))}）。`:"—";
+  setDot("dotHour","ok");
+  destroy("dow");
+  charts.dow=new Chart(document.getElementById("dowChart"),{type:"bar",data:{labels:dows.map(d=>DOW[d.dow]),datasets:[{label:timeMetric==="orders"?"注文数":"売上",data:dows.map(val),backgroundColor:PAL.new,borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{min:0,beginAtZero:true}}}});
+  const topD=dows.slice().sort((a,b)=>val(b)-val(a))[0];
+  document.getElementById("dowCallout").innerHTML=topD?`最も多いのは <b>${DOW[topD.dow]}曜</b>（${fmt(val(topD))}）。`:"—";
+  setDot("dotDow","ok");
+}
+
+/* ===== 施策マーカー（Chart.js プラグイン：縦線） ===== */
+let CMP_MARKS={};
+const campaignPlugin={ id:"cmpLines", afterDatasetsDraw(chart){
+  const marks=CMP_MARKS[chart.canvas.id]||[]; if(!marks.length) return;
+  const x=chart.scales.x; const ctx=chart.ctx; const top=chart.chartArea.top, bottom=chart.chartArea.bottom;
+  marks.forEach(m=>{ if(m.idx<0) return; const px=x.getPixelForValue(m.idx); ctx.save();
+    ctx.strokeStyle="rgba(204,59,48,.75)"; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(px,top); ctx.lineTo(px,bottom); ctx.stroke();
+    ctx.setLineDash([]); ctx.fillStyle="#cc3b30"; ctx.font="11px sans-serif"; ctx.textAlign="center";
+    ctx.fillText("🚩",px,top-1); ctx.restore(); });
+}};
+if(window.Chart) Chart.register(campaignPlugin);
+
+/* ===== 推移（週次/月次） ===== */
+let trendUnit="weekly", trendMetric="newBuyers";
+function weekStartJS(dateStr){ const d=new Date(dateStr+"T00:00:00Z"); const dow=d.getUTCDay(); const diff=dow===0?6:dow-1; d.setUTCDate(d.getUTCDate()-diff); return d.toISOString().slice(0,10); }
+function addDays(dateStr,n){ const d=new Date(dateStr+"T00:00:00Z"); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+function marksForRows(rows){ return loadCmps().map(c=>{ const key=trendUnit==="weekly"?weekStartJS(c.date):c.date.slice(0,7); return {idx:rows.findIndex(b=>b.key===key),label:c.text}; }).filter(m=>m.idx>=0); }
+function renderTrends(){
+  if(!DATA||!DATA.trends){ return; }
+  const T=DATA.trends; const arr=(trendUnit==="weekly"?T.weekly:T.monthly)||[];
+  const lim=trendUnit==="weekly"?26:18; const rows=arr.slice(-lim);
+  const labels=rows.map(r=>trendUnit==="weekly"?r.key.slice(5):r.key);
+  const isMoney=trendMetric==="sales";
+  const mlabel=trendMetric==="newBuyers"?"新規購入者":(isMoney?"売上":"注文数");
+  const data=rows.map(r=>r[trendMetric]);
+  const color=trendMetric==="newBuyers"?PAL.new:(isMoney?PAL.bar:PAL.barHi);
+  CMP_MARKS["trendChart"]=marksForRows(rows);
+  destroy("trend");
+  charts.trend=new Chart(document.getElementById("trendChart"),{type:"bar",data:{labels,datasets:[{label:mlabel,data,backgroundColor:color,borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>mlabel+": "+(isMoney?yen(ctx.parsed.y):num(ctx.parsed.y))+(trendMetric==="newBuyers"?"人":(trendMetric==="orders"?"件":""))}}},scales:{x:{grid:{display:false},ticks:{font:{size:9}}},y:{min:0,beginAtZero:true}}}});
+  let h=`<table><thead><tr><th>${trendUnit==="weekly"?"週（開始日）":"月"}</th><th>新規購入者</th><th>売上</th><th>注文数</th><th>リピート注文</th></tr></thead><tbody>`;
+  rows.slice().reverse().forEach(r=>{ h+=`<tr><td>${esc(r.key)}</td><td style="color:#2f6f4f;font-weight:600">${num(r.newBuyers)}人</td><td>${yen(r.sales)}</td><td>${num(r.orders)}</td><td>${num(r.repeatOrders)}</td></tr>`; });
+  document.getElementById("trendBody").innerHTML=h+`</tbody></table>`;
+  document.getElementById("trendNote").textContent=`直近${rows.length}${trendUnit==="weekly"?"週":"ヶ月"}を表示`;
+  setDot("dotTrend","ok");
+}
+
+function renderWoW(){
+  const box=document.getElementById("wowBody");
+  const weeks=(DATA&&DATA.trends&&DATA.trends.weekly)||[];
+  if(weeks.length<2){ box.innerHTML=`<div class="muted">週次データが不足しています。</div>`; return; }
+  const today=new Date(Date.now()+9*3600*1000).toISOString().slice(0,10);
+  const curKey=weekStartJS(today), prevKey=addDays(curKey,-7), prev2Key=addDays(curKey,-14);
+  const byKey={}; weeks.forEach(w=>byKey[w.key]=w);
+  const z={sales:0,newBuyers:0,orders:0};
+  const cur=byKey[curKey]||z, last=byKey[prevKey]||z, last2=byKey[prev2Key]||z;
+  const row=(label,key,money,suf)=>{
+    const c=cur[key]||0,l=last[key]||0,l2=last2[key]||0;
+    const dv=l-l2, p=l2?dv/l2*100:null; const cls=dv>0?"up":(dv<0?"down":""); const ar=dv>0?"▲":(dv<0?"▼":"—");
+    const f=money?yen:(x=>num(x)+(suf||""));
+    return `<tr><td style="text-align:left">${label}</td><td>${f(c)}</td><td style="font-weight:700">${f(l)}</td><td>${f(l2)}</td><td class="${cls}" style="font-weight:700">${ar} ${p!=null?((dv>0?"+":"")+p.toFixed(0)+"%"):"—"}</td></tr>`;
+  };
+  box.innerHTML=`<table><thead><tr><th>指標</th><th>今週(途中)</th><th>先週</th><th>先々週</th><th>前週比<br><span class="muted" style="font-weight:400">先週÷先々週</span></th></tr></thead><tbody>${row("売上","sales",true,"")}${row("新規購入者","newBuyers",false,"人")}${row("注文数","orders",false,"件")}</tbody></table><div class="note" style="margin-top:10px">「今週(途中)」は ${curKey} 週（月曜始まり）の現時点までの集計です。前週比は確定値どうし（先週÷先々週）で算出しています。</div>`;
+}
+
+/* ===== 施策タイミング（localStorage） ===== */
+const CMP_KEY="peak_tt_campaigns_v1"; let cmpWin=7;
+function loadCmps(){ try{return JSON.parse(localStorage.getItem(CMP_KEY)||"[]");}catch(e){return [];} }
+function saveCmps(a){ localStorage.setItem(CMP_KEY,JSON.stringify(a)); }
+function renderCmpList(){
+  const cs=loadCmps().sort((a,b)=>a.date<b.date?-1:1);
+  if(!cs.length){ document.getElementById("cmpList").innerHTML=`<div class="muted">施策はまだ登録されていません。上のフォームから追加してください。</div>`; return; }
+  let h=`<table><thead><tr><th>実施日</th><th>施策内容</th><th></th></tr></thead><tbody>`;
+  cs.forEach(c=>{ h+=`<tr><td><span class="tmark"></span>${esc(c.date||"—")}</td><td style="text-align:left;white-space:normal">${esc(c.text)}</td><td><button class="mini" data-cdel="${c.id}">削除</button></td></tr>`; });
+  document.getElementById("cmpList").innerHTML=h+`</tbody></table>`;
+  document.querySelectorAll('#cmpList [data-cdel]').forEach(b=>b.addEventListener("click",()=>{ saveCmps(loadCmps().filter(x=>x.id!==b.dataset.cdel)); refreshCampaigns(); }));
+}
+function renderCmpPick(){
+  const sel=document.getElementById("cmpPick"); const cur=sel.value;
+  const cs=loadCmps().sort((a,b)=>a.date<b.date?1:-1);
+  sel.innerHTML=cs.map(c=>`<option value="${c.id}">${esc(c.date||"")} · ${esc(c.text)}</option>`).join("");
+  if(cs.find(c=>c.id===cur)) sel.value=cur;
+}
+function sumWindow(days,fromStr,toStr){ let s={sales:0,newBuyers:0,orders:0}; days.forEach(d=>{ if(d.key>=fromStr&&d.key<toStr){ s.sales+=d.sales; s.newBuyers+=d.newBuyers; s.orders+=d.orders; } }); return s; }
+function renderCmpCompare(){
+  const box=document.getElementById("cmpCompare");
+  const c=loadCmps().find(x=>x.id===document.getElementById("cmpPick").value);
+  if(!c||!c.date){ box.innerHTML=`<div class="muted">施策（実施日あり）を登録すると比較を表示します。</div>`; return; }
+  const days=(DATA&&DATA.trends&&DATA.trends.daysAll)||[];
+  if(!days.length){ box.innerHTML=`<div class="muted">データ読み込み後に表示されます。</div>`; return; }
+  const before=sumWindow(days,addDays(c.date,-cmpWin),c.date);
+  const after=sumWindow(days,c.date,addDays(c.date,cmpWin));
+  const mb=(t,b,a,money)=>{ const dv=a-b; const p=b?dv/b*100:null; const cls=dv>0?"up":(dv<0?"down":""); const ar=dv>0?"▲":(dv<0?"▼":"—");
+    return `<div class="cmpbox"><div class="t">${t}（後${cmpWin}日）</div><div class="v">${money?yen(a):num(a)}</div><div class="d ${cls}">${ar} ${money?yen(Math.abs(dv)):num(Math.abs(dv))}${p!=null?`（${dv>0?"+":""}${p.toFixed(0)}%）`:""}</div><div class="t" style="margin-top:4px">前${cmpWin}日: ${money?yen(b):num(b)}</div></div>`; };
+  box.innerHTML=`<div class="sub" style="margin-bottom:8px">実施日 <b>${esc(c.date)}</b>「${esc(c.text)}」を境に、前${cmpWin}日 と 後${cmpWin}日 を比較</div>
+    <div class="cmpgrid">${mb("売上",before.sales,after.sales,true)}${mb("新規購入者",before.newBuyers,after.newBuyers,false)}${mb("注文数",before.orders,after.orders,false)}</div>
+    <div class="note" style="margin-top:10px">「後${cmpWin}日」は実施日当日を含みます。直近の施策ほど「後」期間がまだ途中になり得る点にご注意ください。集計は取得済み全期間（約400日）の日別データに基づきます。</div>`;
+}
+function refreshCampaigns(){ renderCmpList(); renderCmpPick(); renderCmpCompare(); if(DATA){ renderTrends(); renderDaily(); } }
+function addCmp(){ const d=document.getElementById("cmpDate").value; const el=document.getElementById("cmpText"); const text=el.value.trim();
+  if(!text){ el.focus(); return; } if(!d){ document.getElementById("cmpDate").focus(); return; }
+  const cs=loadCmps(); cs.push({id:"c"+Date.now()+Math.random().toString(36).slice(2,6),date:d,text}); saveCmps(cs);
+  el.value=""; refreshCampaigns(); }
+document.getElementById("cmpAdd").addEventListener("click",addCmp);
+document.getElementById("cmpText").addEventListener("keydown",e=>{ if(e.key==="Enter")addCmp(); });
+document.getElementById("cmpPick").addEventListener("change",renderCmpCompare);
+document.querySelectorAll('#trendUnit button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#trendUnit button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); trendUnit=b.dataset.u; if(DATA)renderTrends(); }));
+document.querySelectorAll('#trendMetric button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#trendMetric button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); trendMetric=b.dataset.m; if(DATA)renderTrends(); }));
+document.querySelectorAll('#cmpWin button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#cmpWin button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); cmpWin=Number(b.dataset.w); renderCmpCompare(); }));
+
+document.getElementById("tabs").addEventListener("click",e=>{ const t=e.target.closest(".tab"); if(!t)return;
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active")); t.classList.add("active");
+  document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active")); document.getElementById("panel-"+t.dataset.tab).classList.add("active");
+  try{ window.dispatchEvent(new Event("resize")); }catch(err){} });
+
+/* ===== アコーディオン: 各カードの見出しクリックで開閉（状態は端末に保存） ===== */
+const ACC_KEY="peak_acc_collapsed_v1";
+function accGet(){ try{return new Set(JSON.parse(localStorage.getItem(ACC_KEY)||"[]"));}catch(e){return new Set();} }
+function accSave(s){ try{localStorage.setItem(ACC_KEY,JSON.stringify([...s]));}catch(e){} }
+function accKeyOf(h2){ return (h2.textContent||"").replace(/\s+/g," ").trim().slice(0,48); }
+function initAccordion(){ const s=accGet(); document.querySelectorAll(".panel > .card > h2").forEach(h2=>{ if(s.has(accKeyOf(h2))) h2.parentElement.classList.add("collapsed"); }); }
+document.addEventListener("click",e=>{
+  const h2=e.target.closest("h2"); if(!h2) return;
+  const card=h2.parentElement; if(!card||!card.classList.contains("card")) return;
+  if(!card.parentElement||!card.parentElement.classList.contains("panel")) return;
+  card.classList.toggle("collapsed");
+  const s=accGet(); const k=accKeyOf(h2); if(card.classList.contains("collapsed")) s.add(k); else s.delete(k); accSave(s);
+  if(!card.classList.contains("collapsed")){ try{ window.dispatchEvent(new Event("resize")); }catch(err){} }
+});
+initAccordion();
+document.getElementById("period").addEventListener("change",e=>{ const v=e.target.value;
+  document.getElementById("customRange").style.display=v==="custom"?"inline":"none";
+  document.getElementById("monthRange").style.display=v==="month"?"inline":"none";
+  if(v==="custom"||v==="month") return; // 入力待ち
+  loadAll();
+});
+document.getElementById("monthPick").addEventListener("change",()=>{ if(document.getElementById("period").value==="month") loadAll(); });
+document.getElementById("reloadBtn").addEventListener("click",loadAll);
+document.getElementById("reportBtn").addEventListener("click",()=>window.print());
+document.getElementById("prodSearch").addEventListener("input",()=>{expanded["prod"]=false; renderProducts();});
+document.getElementById("newProdSearch").addEventListener("input",()=>{expanded["newp"]=false; renderNewProducts();});
+document.getElementById("repProdSearch").addEventListener("input",()=>{expanded["repp"]=false; renderRepeatProducts();});
+document.getElementById("invSearch").addEventListener("input",()=>{expanded["inv"]=false; renderStock();});
+document.getElementById("ttSearch").addEventListener("input",()=>{expanded["tt"]=false; renderTTStock();});
+{ const bs=document.getElementById("brandSearch"); if(bs) bs.addEventListener("input",renderBrandExplorer); }
+// 期間比較のイベント
+{ const pa=document.getElementById("cmpPresetA"),pb=document.getElementById("cmpPresetB");
+  if(pa) pa.addEventListener("change",()=>{ document.getElementById("cmpCustomA").style.display=pa.value==="custom"?"inline":"none"; });
+  if(pb) pb.addEventListener("change",()=>{ document.getElementById("cmpCustomB").style.display=pb.value==="custom"?"inline":"none"; });
+  const rb=document.getElementById("cmpRun"); if(rb) rb.addEventListener("click",runCompare);
+}
+document.getElementById("goalSave").addEventListener("click",()=>{ const refMonth=((DATA&&DATA.range&&DATA.range.since)||"").slice(0,7); if(!refMonth){ alert("対象月が不明です。期間を選び直してください"); return; } const v=parseInt(document.getElementById("goalInput").value,10); const g=loadGoals(); if(!v||v<=0) delete g[refMonth]; else g[refMonth]=v; saveGoals(g); document.getElementById("goalStatus").textContent="保存しました ✓"; renderProgress(); });
+document.getElementById("shAdd").addEventListener("click",addShift);
+(function(){ const sd=document.getElementById("shDate"); if(sd&&!sd.value){ sd.value=new Date(Date.now()+9*3600*1000).toISOString().slice(0,10); } })();
+document.getElementById("ovrSave").addEventListener("click",()=>{ const r=parseInt(document.getElementById("rateInput").value,10); if(r>=5&&r<=95) saveRate(r/100); loadAll(); });
+document.getElementById("ovrReset").addEventListener("click",()=>{ if(confirm("入力した原価・SD紐付け・係数をすべてリセットしますか？")){ localStorage.removeItem(COST_OVR_KEY); localStorage.removeItem(COST_MANUAL_KEY); localStorage.removeItem(COST_RATE_KEY); loadAll(); } });
+document.querySelectorAll('#timeMetric button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#timeMetric button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); timeMetric=b.dataset.m; if(DATA)renderTiming(); }));
+document.querySelectorAll('#dailyUnit button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#dailyUnit button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); dailyUnit=b.dataset.u; if(DATA)renderDaily(); }));
+document.getElementById("liveAddBtn").addEventListener("click",async()=>{
+  const date=document.getElementById("liveAddDate").value, hours=parseFloat(document.getElementById("liveAddHours").value), count=parseInt(document.getElementById("liveAddCount").value,10)||0, key=document.getElementById("liveAddKey").value;
+  const msg=document.getElementById("liveAddMsg");
+  if(!date||!(hours>=0)){ msg.textContent="日付と配信時間(h)を入力してください"; return; }
+  msg.textContent="送信中…";
+  try{
+    const r=await fetch("/api/live_ingest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date,hours,liveCount:count,key})});
+    const j=await r.json();
+    if(j.ok){ msg.textContent=`✓ ${date} を保存（計${j.totalDays}日）。再読込します…`; setTimeout(loadAll,700); }
+    else { msg.textContent="✗ "+(j.error||"失敗"); }
+  }catch(e){ msg.textContent="✗ 通信エラー"; }
+});
+
+const ACT_KEY="peak_tt_actions_v2"; let actFilter="all";
+function loadActs(){ try{return JSON.parse(localStorage.getItem(ACT_KEY)||"[]");}catch(e){return [];} }
+function saveActs(a){ localStorage.setItem(ACT_KEY,JSON.stringify(a)); }
+function renderActs(){
+  const acts=loadActs().sort((a,b)=>String(a.date||"9999-99-99").localeCompare(String(b.date||"9999-99-99")));
+  const todo=acts.filter(a=>!a.done).length, done=acts.filter(a=>a.done).length;
+  document.getElementById("actSummary").textContent=` · 未実行 ${todo}件 / 実行済 ${done}件`;
+  let list=acts; if(actFilter==="todo")list=acts.filter(a=>!a.done); if(actFilter==="done")list=acts.filter(a=>a.done);
+  if(!list.length){ document.getElementById("actBody").innerHTML=`<div class="muted">アクションはまだありません。上のフォームから追加してください。</div>`; return; }
+  const today=new Date(Date.now()+9*3600*1000).toISOString().slice(0,10);
+  let h=`<table><thead><tr><th>状態</th><th>アクション</th><th>予定日</th><th>担当</th><th></th></tr></thead><tbody>`;
+  list.forEach(a=>{ const overdue=!a.done&&a.date&&a.date<today; const col=a.done?'#2f9e5f':(overdue?'#cc3b30':'#d4a017'); const lbl=a.done?'実行済':(overdue?'期限超過':'未実行');
+    h+=`<tr><td style="text-align:left"><label style="cursor:pointer;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" data-done="${a.id}" ${a.done?"checked":""} style="width:auto;padding:0"> <span style="font-size:11px;font-weight:700;color:#fff;background:${col};border-radius:5px;padding:1px 7px">${lbl}</span></label></td>`;
+    h+=`<td style="text-align:left;white-space:normal;${a.done?'color:#9a9a9a;text-decoration:line-through':''}">${esc(a.text)}</td>`;
+    h+=`<td>${a.date?esc(a.date):'—'}</td><td>${esc(a.owner||'—')}</td><td><button class="mini" data-del="${a.id}">削除</button></td></tr>`; });
+  document.getElementById("actBody").innerHTML=h+`</tbody></table>`;
+  document.querySelectorAll('#actBody [data-done]').forEach(c=>c.addEventListener("change",()=>{const acts=loadActs();const it=acts.find(x=>x.id===c.dataset.done);if(it){it.done=c.checked;saveActs(acts);renderActs();}}));
+  document.querySelectorAll('#actBody [data-del]').forEach(b=>b.addEventListener("click",()=>{let acts=loadActs().filter(x=>x.id!==b.dataset.del);saveActs(acts);renderActs();}));
+}
+function addAct(){ const el=document.getElementById("actText"); const text=el.value.trim(); if(!text)return;
+  const date=document.getElementById("actDate").value; const owner=document.getElementById("actOwner").value.trim();
+  const acts=loadActs(); acts.push({id:"a"+Date.now()+Math.random().toString(36).slice(2,6),text,date,owner,done:false}); saveActs(acts);
+  el.value=""; document.getElementById("actOwner").value=""; renderActs(); }
+document.getElementById("actAdd").addEventListener("click",addAct);
+document.getElementById("actText").addEventListener("keydown",e=>{ if(e.key==="Enter")addAct(); });
+document.querySelectorAll('#actFilter button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#actFilter button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); actFilter=b.dataset.f; renderActs(); }));
+renderActs();
+renderCmpList(); renderCmpPick(); renderCmpCompare();
+
+loadAll();
+</script>
+</body>
+</html>
