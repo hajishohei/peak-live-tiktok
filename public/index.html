@@ -88,7 +88,8 @@ tbody tr:hover { background:#f2f1ed; }
   .kpi .label{ font-size:10.5px; }
   .chartbox{ height:240px; } .chartbox.sm{ height:210px; }
   /* 横長の表はスワイプで横スクロール（列は詰めない） */
-  .card table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap; }
+  /* touch-action:pan-x で「横スクロール中に縦にもガタつく」斜めスクロールを防ぐ（横だけに固定） */
+  .card table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap; touch-action:pan-x; overscroll-behavior-x:contain; }
   .card table.cctbl{ table-layout:auto; }
   .card td:first-child, .card th:first-child{ white-space:normal; }
   th,td{ padding:6px 8px; font-size:12px; }
@@ -1037,15 +1038,19 @@ function renderSnapBar(){
     return;
   }
   const ageDays=s.builtAt?Math.floor((Date.now()-s.builtAt)/86400000):null;
-  const fresh = s.hasSnapshot && ageDays!=null && ageDays<30;
+  // H-5/H-1: 版数が古い(schemaStale)・初回の暫定取得(coldInit)は、日数が新しくても履歴更新を促す。
+  const fresh = s.hasSnapshot && ageDays!=null && ageDays<30 && !s.schemaStale && !s.coldInit;
   if(fresh){
     // 問題なし → 目立たないフッターに小さく表示（更新ボタンも控えめに残す）
     if(foot) foot.innerHTML=`📦 履歴スナップショット: ${num(s.snapshotOrders)}件・${ageDays}日前に更新 <a href="#" id="snapUpdate" style="margin-left:6px">手動更新</a> <span class="muted" id="snapMsg"></span>`;
   } else {
-    // 未作成 or 30日以上未更新 → 目立つ上部バーで警告＋更新ボタン
+    // 未作成 / 30日以上未更新 / 版数が古い / 初回暫定 → 目立つ上部バーで警告＋更新ボタン
     bar.style.display="block"; bar.style.background="#fdecea"; bar.style.border="1px solid #e0a59f";
-    const ageTxt=s.builtAt?`${ageDays}日前に更新`:"未作成";
-    const head= s.hasSnapshot? `📦 履歴スナップショットが${ageDays}日前から未更新です` : "📦 履歴スナップショットが未作成です";
+    let head;
+    if(!s.hasSnapshot) head="📦 履歴スナップショットが未作成です";
+    else if(s.coldInit) head=`📦 現在は直近ぶんのみの暫定表示です（全期間の履歴が未構築）`;
+    else if(s.schemaStale) head=`📦 履歴スナップショットの形式が古く、一部期間で新項目（TT負担クーポン等）が欠けています`;
+    else head=`📦 履歴スナップショットが${ageDays}日前から未更新です`;
     bar.innerHTML=`${head} <b style="color:#b3261e">— 「履歴を更新」を押してください（月1回でOK）</b> <button class="primary" id="snapUpdate" style="margin-left:10px">🔄 履歴を更新</button> <span class="muted" id="snapMsg"></span>`;
   }
   const btn=document.getElementById("snapUpdate"); if(btn) btn.addEventListener("click",(e)=>{ e.preventDefault(); updateSnapshot(); });

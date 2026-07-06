@@ -166,30 +166,70 @@ function calcSign(path, params, bodyStr, secret) {
 function buildQS(params) {
   return Object.keys(params).map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`).join("&");
 }
+// すべての外部fetchにタイムアウトを付ける（上流ハング＝関数タイムアウトの主因を防ぐ）。
+async function fetchWithTimeout(url, opts, ms) {
+  const ctrl = ("AbortController" in globalThis) ? new AbortController() : null;
+  const t = ctrl ? setTimeout(() => ctrl.abort(), ms || 8000) : null;
+  try { return await fetch(url, ctrl ? { ...(opts || {}), signal: ctrl.signal } : (opts || {})); }
+  finally { if (t) clearTimeout(t); }
+}
 // ===== アクセストークン自動更新（refresh_token使用）=====
 // access_token は約7日で失効するが、refresh_token があれば自動で取り直す（手作業不要）。
+// H-6: 更新後のrefresh_tokenはBlobに永続化し、コールドスタートや回転運用でも失効しないようにする。
+//      同時に走るrefreshは1本に集約（single-flight）して競合・多重更新を防ぐ。
 let tokenState = null; // { access, exp, refresh }
+let tokenLoaded = false;
+let refreshPromise = null;
+const TOKEN_BLOB_PATH = "tts-token-state.json";
+async function loadTokenStateFromBlob() {
+  if (tokenLoaded) return;
+  tokenLoaded = true;
+  if (!blobConfigured()) return;
+  try {
+    const { get } = await import("@vercel/blob");
+    const res = await get(TOKEN_BLOB_PATH, { access: "private" });
+    if (!res || res.statusCode !== 200 || !res.stream) return;
+    const j = JSON.parse(await new Response(res.stream).text());
+    if (j && j.access && j.refresh) tokenState = { access: j.access, exp: Number(j.exp) || 0, refresh: j.refresh };
+  } catch (e) { /* Blob未設定/未作成は無視 */ }
+}
+async function saveTokenStateToBlob() {
+  if (!blobConfigured() || !tokenState) return;
+  try {
+    const { put } = await import("@vercel/blob");
+    await put(TOKEN_BLOB_PATH, JSON.stringify({ access: tokenState.access, exp: tokenState.exp, refresh: tokenState.refresh, savedAt: Date.now() }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
+  } catch (e) { /* 保存失敗は無視（次回再試行） */ }
+}
 function isExpiredAuth(j) {
   if (!j) return false;
   const m = String(j.message || "").toLowerCase();
   const codeBad = [105000, 105001, 105002, 36004003, 36004004].includes(Number(j.code));
   return codeBad || /expired|x-tts-access-token|access_token.*(expired|invalid)|invalid.*access_token|credential/.test(m);
 }
-async function refreshAccessToken(env) {
-  if (!env.refresh) throw new Error("TTS_REFRESH_TOKEN が未設定です（初回のみ /api/auth で認可し、TTS_REFRESH_TOKEN を環境変数に設定してください）");
+async function doRefreshAccessToken(env) {
+  // 最新のrefresh_token（Blob由来があれば優先、無ければ環境変数）を使う。
+  const refreshTok = (tokenState && tokenState.refresh) || env.refresh;
+  if (!refreshTok) throw new Error("TTS_REFRESH_TOKEN が未設定です（初回のみ /api/auth で認可し、TTS_REFRESH_TOKEN を環境変数に設定してください）");
   const url = "https://auth.tiktok-shops.com/api/v2/token/refresh" +
     "?app_key=" + encodeURIComponent(env.key) +
     "&app_secret=" + encodeURIComponent(env.secret) +
-    "&refresh_token=" + encodeURIComponent(env.refresh) +
+    "&refresh_token=" + encodeURIComponent(refreshTok) +
     "&grant_type=refresh_token";
-  const r = await fetch(url, { method: "GET", headers: { "Content-Type": "application/json" } });
+  const r = await fetchWithTimeout(url, { method: "GET", headers: { "Content-Type": "application/json" } }, 8000);
   const text = await r.text();
   let j = {}; try { j = JSON.parse(text); } catch (e) {}
   const d = j.data || {};
   if (!d.access_token) throw new Error("アクセストークンの自動更新に失敗: " + (j.message || ("HTTP " + r.status)) + "（refresh_token が失効している可能性。/api/auth で再認可してください）");
   const ttl = Number(d.access_token_expire_in || 0);
-  tokenState = { access: d.access_token, exp: Date.now() + Math.max(60, ttl - 120) * 1000, refresh: d.refresh_token || env.refresh };
+  tokenState = { access: d.access_token, exp: Date.now() + Math.max(60, ttl - 120) * 1000, refresh: d.refresh_token || refreshTok };
+  await saveTokenStateToBlob(); // 回転した新しいrefresh_tokenを永続化
   return tokenState.access;
+}
+function refreshAccessToken(env) {
+  // single-flight: 進行中のrefreshがあれば共有して多重更新を防ぐ
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = doRefreshAccessToken(env).finally(() => { refreshPromise = null; });
+  return refreshPromise;
 }
 function activeToken(env) {
   if (tokenState && tokenState.access && Date.now() < tokenState.exp) return tokenState.access;
@@ -202,10 +242,16 @@ async function doRequest({ path, method, query, bodyObj, env, shopCipher }, toke
   const bodyStr = bodyObj ? JSON.stringify(bodyObj) : "";
   params.sign = calcSign(path, params, bodyStr, env.secret);
   const url = `${API_BASE}${path}?${buildQS(params)}`;
-  const r = await fetch(url, {
-    method, headers: { "Content-Type": "application/json", "x-tts-access-token": token },
-    body: bodyObj ? bodyStr : undefined,
-  });
+  let r;
+  try {
+    r = await fetchWithTimeout(url, {
+      method, headers: { "Content-Type": "application/json", "x-tts-access-token": token },
+      body: bodyObj ? bodyStr : undefined,
+    }, 15000);
+  } catch (e) {
+    // タイムアウト/中断は一時エラー扱いにして上位でリトライさせる
+    return { code: 98001001, message: `request aborted/timeout: ${String((e && e.message) || e)}` };
+  }
   const text = await r.text();
   let json;
   try { json = JSON.parse(text); } catch (e) { json = { code: -1, message: `HTTP ${r.status}: ${text.slice(0, 200)}` }; }
@@ -221,10 +267,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function callTT(opts) {
   const { method = "GET", query = {}, bodyObj = null } = opts;
   opts.method = method; opts.query = query; opts.bodyObj = bodyObj;
+  await loadTokenStateFromBlob(); // 永続化済みトークン（回転後のrefresh含む）を先に読む
+  const canRefresh = () => !!(opts.env.refresh || (tokenState && tokenState.refresh));
   let j;
   for (let attempt = 0; attempt < 4; attempt++) {
     j = await doRequest(opts, activeToken(opts.env));
-    if (isExpiredAuth(j) && opts.env.refresh) {
+    if (isExpiredAuth(j) && canRefresh()) {
       try { const fresh = await refreshAccessToken(opts.env); j = await doRequest(opts, fresh); }
       catch (e) { return { code: (j && j.code) || -1, message: (j && j.message ? j.message + " / " : "") + String(e.message || e) }; }
     }
@@ -325,10 +373,17 @@ async function getRefundsByOrder(env, shopCipher) {
   refundCache = { key: shopCipher, ts: Date.now(), val };
   return val;
 }
+// H-3: 返金APIを新規に叩かず、温かいキャッシュがあればそれだけ返す（lightモード用）。無ければnull。
+function peekRefundCache(shopCipher) {
+  if (refundCache && refundCache.key === shopCipher && Date.now() - refundCache.ts < REFUND_TTL_MS) return refundCache.val;
+  return null;
+}
 
 // ===== スナップショット高速化（Vercel Blob） =====
 // 過去注文を1ファイルに「冷凍保存」し、毎回は直近のみAPI取得して合体する。
 const LOOKBACK_DAYS = 400;          // スナップショット未設定時のフル取得日数
+const COLD_INIT_DAYS = 90;          // H-1: スナップショット不在の初回は直近この日数だけ取得（フル400日はHobbyでタイムアウトするため）。全期間は /api/snapshot（履歴を更新）で後追い構築。
+const SNAPSHOT_SCHEMA = 2;          // H-5: trimOrderの構造版数（tt_funded/user_id/buyer_name を含む=2）。古い版数のスナップショットは再構築を促す。
 const SNAPSHOT_OVERLAP_DAYS = 1;    // 直近の状態変化(キャンセル等)を取りこぼさない重複日数
 const REFRESH_MIN_DAYS = 45;        // 直近この日数は毎回再取得し、最新項目(TT負担クーポン等)で上書き
 const ROLL_THRESHOLD_SEC = 6 * 3600; // 基準日がこれ以上前なら自動ロール（前進）して保存
@@ -380,14 +435,15 @@ async function loadSnapshot() {
     if (!res || res.statusCode !== 200 || !res.stream) return null;
     const text = await new Response(res.stream).text();
     const j = JSON.parse(text);
-    snapMem = { builtAt: j.builtAt, cutoffTs: j.cutoffTs, orders: j.orders || [], _ts: Date.now() };
+    snapMem = { builtAt: j.builtAt, cutoffTs: j.cutoffTs, orders: j.orders || [], schemaVersion: Number(j.schemaVersion) || 1, _ts: Date.now() };
     return snapMem;
   } catch (e) { return null; }
 }
 async function saveSnapshotData(data) {
+  const payload = { schemaVersion: SNAPSHOT_SCHEMA, ...data }; // H-5: 版数を必ず記録
   const { put } = await import("@vercel/blob");
-  await put(SNAP_PATH, JSON.stringify(data), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
-  snapMem = { builtAt: data.builtAt, cutoffTs: data.cutoffTs, orders: data.orders, _ts: Date.now() };
+  await put(SNAP_PATH, JSON.stringify(payload), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
+  snapMem = { builtAt: data.builtAt, cutoffTs: data.cutoffTs, orders: data.orders, schemaVersion: SNAPSHOT_SCHEMA, _ts: Date.now() };
 }
 async function buildAndSaveSnapshot(env, shopCipher) {
   const now = Math.floor(Date.now() / 1000);
@@ -448,7 +504,8 @@ function hmsToSecQ(s) {
 async function fetchBarbieFromRanking() {
   if (liveMonthlyMem && Date.now() - liveMonthlyMem._ts < 6 * 3600 * 1000) return liveMonthlyMem.val;
   try {
-    const r = await fetch(RANKING_URL, { headers: { accept: "application/json" } });
+    const r = await fetchWithTimeout(RANKING_URL, { headers: { accept: "application/json" } }, 4000);
+    if (!r.ok) throw new Error("ranking HTTP " + r.status);
     const d = await r.json();
     const months = (d && d.months) || {};
     const monthly = {};
@@ -478,12 +535,16 @@ async function getAllOrders(env, shopCipher) {
     lastSnapInfo = orderCache.snapInfo; return orderCache.orders;
   }
   const snap = await loadSnapshot();
-  let base = [], geLive;
+  const schemaStale = !!(snap && snap.orders && snap.orders.length && (Number(snap.schemaVersion) || 1) < SNAPSHOT_SCHEMA);
+  let base = [], geLive, coldInit = false;
   if (snap && snap.orders && snap.orders.length) {
     base = snap.orders;
     geLive = snap.cutoffTs - SNAPSHOT_OVERLAP_DAYS * 24 * 3600;
   } else {
-    geLive = now - LOOKBACK_DAYS * 24 * 3600;
+    // H-1: 初回（スナップショット不在）はフル400日ではなく直近COLD_INIT_DAYSだけ取得して即表示。
+    //      全期間は snapBar の「履歴を更新」→ /api/snapshot で後追い構築する。
+    geLive = now - COLD_INIT_DAYS * 24 * 3600;
+    coldInit = true;
   }
   // 直近は常に再取得してスナップショットを最新項目（TT負担クーポン等）で上書きする。
   // 当月＋αを必ずカバーし、古いスナップショットに platform_discount が無くても正しく集計できるようにする。
@@ -510,6 +571,9 @@ async function getAllOrders(env, shopCipher) {
     builtAt: snap ? snap.builtAt : null,
     snapshotOrders: base.length,
     liveOrders: live.length,
+    schemaVersion: snap ? (Number(snap.schemaVersion) || 1) : null,
+    schemaStale,   // H-5: 古い版数のスナップショット（新項目が欠ける期間あり）→ 履歴の更新を促す
+    coldInit,      // H-1: 初回の暫定取得（直近のみ）。全期間は履歴更新で構築
   };
   lastSnapInfo = snapInfo;
   orderCache = { key: shopCipher, ts: Date.now(), orders, snapInfo };
@@ -536,21 +600,30 @@ async function fetchProductsRaw(env, shopCipher) {
 }
 // 在庫が search で取れない場合に備え、各商品の詳細から在庫を補完（最大N件）。
 async function fillInventory(env, shopCipher, list) {
+  // H-1: 在庫欠落商品の詳細取得を並列化（従来は最大80件を直列＝数十秒でタイムアウト要因）。
+  //      同時実行を絞りつつ、全体の時間予算を超えたら打ち切る（本体表示を優先）。
   const need = list.filter((p) => p.stock == null).slice(0, 80);
-  for (const p of need) {
-    try {
-      const j = await callTT({ path: `/product/202309/products/${p.id}`, method: "GET", env, shopCipher });
-      if (j.code === 0 && j.data) {
-        const skus = j.data.skus || [];
-        let tot = 0; const sk = [];
-        for (const s of skus) {
-          const q = (s.inventory || []).reduce((a, x) => a + (Number(x.quantity) || 0), 0);
-          tot += q; sk.push({ sellerSku: s.seller_sku || "", stock: q });
+  const CONCURRENCY = 6;
+  const deadline = Date.now() + 15000; // 在庫補完に使う時間の上限
+  let idx = 0;
+  async function worker() {
+    while (idx < need.length && Date.now() < deadline) {
+      const p = need[idx++];
+      try {
+        const j = await callTT({ path: `/product/202309/products/${p.id}`, method: "GET", env, shopCipher });
+        if (j.code === 0 && j.data) {
+          const skus = j.data.skus || [];
+          let tot = 0; const sk = [];
+          for (const s of skus) {
+            const q = (s.inventory || []).reduce((a, x) => a + (Number(x.quantity) || 0), 0);
+            tot += q; sk.push({ sellerSku: s.seller_sku || "", stock: q });
+          }
+          p.stock = tot; p.skus = sk;
         }
-        p.stock = tot; p.skus = sk;
-      }
-    } catch (e) { /* 個別失敗は無視 */ }
+      } catch (e) { /* 個別失敗は無視 */ }
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, need.length) }, () => worker()));
 }
 function normProducts(raw) {
   return raw.map((p) => {
@@ -1133,10 +1206,19 @@ export default async function handler(req, res) {
       try { const bd = await loadLiveDaily(); RUNTIME_LIVE_DAILY = { ...bd, ...(rk.daily || {}) }; } catch (e) { RUNTIME_LIVE_DAILY = rk.daily || {}; }
     }
     let refunds = { byOrder: {}, completed: 0, total: 0, error: null };
-    if (!light) { try { refunds = await getRefundsByOrder(env, shop.cipher); } catch (e) { refunds = { byOrder: {}, completed: 0, total: 0, error: String((e && e.message) || e) }; } }
+    let refundsApplied = false;
+    if (!light) {
+      try { refunds = await getRefundsByOrder(env, shop.cipher); refundsApplied = true; }
+      catch (e) { refunds = { byOrder: {}, completed: 0, total: 0, error: String((e && e.message) || e) }; }
+    } else {
+      // H-3: lightモードは返金APIを新規に叩かないが、温かいキャッシュがあれば適用して
+      //      本体ダッシュボードとドリルの売上（返金差引後）を一致させる。
+      const cached = peekRefundCache(shop.cipher);
+      if (cached) { refunds = cached; refundsApplied = true; }
+    }
     const agg = aggregate(allOrders, R.ge, R.lt, refunds.byOrder);
     // agg.returns は選択期間の注文に紐づく返金（aggregate内で算出）。全期間の合計は参考情報として保持。
-    agg.refundInfo = { completed: refunds.completed, total: refunds.total, allTimeAmount: refunds.refundTotal || 0, allTimeOrders: refunds.refundOrders || 0, error: refunds.error };
+    agg.refundInfo = { completed: refunds.completed, total: refunds.total, allTimeAmount: refunds.refundTotal || 0, allTimeOrders: refunds.refundOrders || 0, error: refunds.error, refundsApplied };
     const overrides = (body && body.costOverrides) || {};
     const manualCosts = (body && body.manualCosts) || {};
     const rate = (body && typeof body.assumeRate === "number" && body.assumeRate > 0 && body.assumeRate < 1) ? body.assumeRate : 0.5;
