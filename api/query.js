@@ -1146,8 +1146,9 @@ function resolveRange(since, until) {
   let s = since, u = until === "today" || !until ? todayJst : until;
   const m = /^-(\d+)d$/.exec(since || "");
   if (m) {
+    // 「直近N日」＝今日を含むN日間。today−(N−1) を起点にする（従来は today−N でN+1日ぶんになっていた）。
     const back = new Date(now.getTime() + 9 * 3600 * 1000);
-    back.setUTCDate(back.getUTCDate() - Number(m[1]));
+    back.setUTCDate(back.getUTCDate() - Math.max(0, Number(m[1]) - 1));
     s = back.toISOString().slice(0, 10);
   }
   return { ge: toUnix(s, false), lt: toUnix(u, true), sinceStr: s, untilStr: u };

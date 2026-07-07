@@ -66,7 +66,8 @@ tbody tr:hover { background:#f2f1ed; }
 .seg button.on { background:#1a1a1a; color:#fff; }
 .morebtn { text-align:center; margin-top:10px; }
 .ratebar { display:inline-block; height:8px; background:#cc3b30; border-radius:4px; vertical-align:middle; margin-left:6px; }
-@media (max-width:860px){ .kpis{grid-template-columns:repeat(2,1fr);} .grid2{grid-template-columns:1fr;} .grid3{grid-template-columns:1fr;} }
+/* M-11: タブレット幅(641〜860px)ではKPIは2列に。インラインstyleの3〜5列指定に勝つよう!important。 */
+@media (max-width:860px){ .kpis{grid-template-columns:repeat(2,1fr)!important;} .grid2{grid-template-columns:1fr;} .grid3{grid-template-columns:1fr;} }
 /* ===== モバイル最適化（スマホ幅・PC表示は不変） ===== */
 @media (max-width:640px){
   body{ font-size:13.5px; }
@@ -223,7 +224,7 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
       <b>原価マッチ率</b>＝全商品のうち <b>SD（スーパーデリバリー）仕入れ実績の原価</b>で原価を出せた商品の割合。残りは <b>売値×<span id="rateNote">50</span>%</b> で仮定した<b>推定</b>です。マッチ率が高いほど粗利の精度が上がり、「原価・在庫」タブで対応付けを調整できます。
     </div>
     <div class="card">
-      <h2 id="progTitle">📈 当月の進捗</h2>
+      <h2 id="progTitle" data-acc="progress">📈 当月の進捗</h2>
       <p class="desc">表示中の期間の売上について、前月同日比と目標達成率を表示します。目標は月ごとに設定できます。</p>
       <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
         <div class="kpi"><div class="label" id="progSalesLbl">期間売上</div><div class="val" id="progSales">—</div><div class="delta" id="progSalesD"></div></div>
@@ -301,11 +302,11 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
     </div>
     <div class="card">
       <h2>🔄 発送後返品の顧客分析</h2>
-      <p class="desc"><b>発送後に返品・返金</b>された注文を購入者ごとに集計。<b>今月の返品回数</b>と<b>累計の返品回数</b>（取得範囲=直近約400日）を出すので、返品が多い顧客を特定できます。<span class="muted">氏名＝受取人名（TikTokの仕様でマスクされる／取れない場合あり）。@ユーザー名はAPIから取得できないため、TikTokの内部ID（数値）を併記します。</span></p>
+      <p class="desc"><b>発送後に返品・返金</b>された注文を購入者ごとに集計。<b>選択期間内の返品回数</b>と<b>累計の返品回数</b>（取得範囲=直近約400日）を出すので、返品が多い顧客を特定できます。<span class="muted">氏名＝受取人名（TikTokの仕様でマスクされる／取れない場合あり）。@ユーザー名はAPIから取得できないため、TikTokの内部ID（数値）を併記します。</span></p>
       <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:0 0 10px">
-        <div class="kpi"><div class="label">返品件数（今月）</div><div class="val" id="rcOrders" style="color:#cc3b30">—</div><div class="delta">発送後の返品・返金</div></div>
-        <div class="kpi"><div class="label">返品した顧客（今月）</div><div class="val" id="rcBuyers">—</div><div class="delta">実人数</div></div>
-        <div class="kpi"><div class="label">2回以上返品した顧客（今月）</div><div class="val" id="rcRepeat" style="color:#cc3b30">—</div><div class="delta">要注意顧客</div></div>
+        <div class="kpi"><div class="label">返品件数（期間内）</div><div class="val" id="rcOrders" style="color:#cc3b30">—</div><div class="delta">発送後の返品・返金</div></div>
+        <div class="kpi"><div class="label">返品した顧客（期間内）</div><div class="val" id="rcBuyers">—</div><div class="delta">実人数</div></div>
+        <div class="kpi"><div class="label">2回以上返品した顧客（期間内）</div><div class="val" id="rcRepeat" style="color:#cc3b30">—</div><div class="delta">要注意顧客</div></div>
       </div>
       <div id="rcBody"></div>
     </div>
@@ -624,13 +625,16 @@ function costSrcBadge(src){
   else if(src==='manual-none'){ label='0円'; col='#9a9a9a'; }
   return `<span style="font-size:10px;font-weight:700;color:#fff;background:${col};border-radius:5px;padding:1px 6px;white-space:nowrap">${label}</span>`;
 }
+// localStorage書き込みの安全ラッパ（Safariプライベートモード等では例外→操作全体が死ぬのを防ぐ）
+function lsSet(k,v){ try{ localStorage.setItem(k,v); return true; }catch(e){ return false; } }
+function lsDel(k){ try{ localStorage.removeItem(k); }catch(e){} }
 const COST_OVR_KEY="peak_tt_cost_overrides_v1", COST_RATE_KEY="peak_tt_assume_rate_v1", COST_MANUAL_KEY="peak_tt_manual_costs_v1";
 function loadOvr(){ try{return JSON.parse(localStorage.getItem(COST_OVR_KEY)||"{}");}catch(e){return {};} }
-function saveOvr(o){ localStorage.setItem(COST_OVR_KEY,JSON.stringify(o)); }
+function saveOvr(o){ lsSet(COST_OVR_KEY,JSON.stringify(o)); }
 function loadManual(){ try{return JSON.parse(localStorage.getItem(COST_MANUAL_KEY)||"{}");}catch(e){return {};} }
-function saveManual(o){ localStorage.setItem(COST_MANUAL_KEY,JSON.stringify(o)); }
+function saveManual(o){ lsSet(COST_MANUAL_KEY,JSON.stringify(o)); }
 function loadRate(){ const v=parseFloat(localStorage.getItem(COST_RATE_KEY)); return (v>0&&v<1)?v:0.5; }
-function saveRate(v){ localStorage.setItem(COST_RATE_KEY,String(v)); }
+function saveRate(v){ lsSet(COST_RATE_KEY,String(v)); }
 const DOW=["日","月","火","水","木","金","土"];
 let charts={}; function destroy(id){ if(charts[id]){try{charts[id].destroy();}catch(e){} delete charts[id];} }
 const PAL={new:"#2f6f4f",bar:"#3a7ca5",barHi:"#d4861f",rate:"#b3261e"};
@@ -754,8 +758,14 @@ function showGlobalError(msg){
   if(bar){ bar.style.display="block"; bar.style.background="#fdecea"; bar.style.border="1px solid #e0a59f"; bar.textContent="⚠ "+msg; }
   const ins=document.getElementById("insights"); if(ins) ins.innerHTML=`<div class="err">${esc(msg)}</div>`;
 }
+// M-4: 期間を素早く切り替えたとき、遅い旧リクエストの応答が新しい選択を上書きしないよう世代管理する。
+let loadGen=0;
+function setControlsDisabled(on){
+  ["period","monthPick","dFrom","dTo","reloadBtn"].forEach(id=>{ const e=document.getElementById(id); if(e) e.disabled=on; });
+}
 async function loadAll(){
-  const gs=document.getElementById("globalStatus"); gs.textContent="読み込み中…"; showLoading(true);
+  const myGen=++loadGen;
+  const gs=document.getElementById("globalStatus"); gs.textContent="読み込み中…"; showLoading(true); setControlsDisabled(true);
   ["dotIns","dotProd","dotDaily","dotHour","dotDow","dotNewEx","dotTrend"].forEach(d=>setDot(d,"load"));
   const R=getRange();
   // render中に1つ例外が出ても showLoading(false) に必ず到達させる（無限オーバーレイ対策）
@@ -764,7 +774,8 @@ async function loadAll(){
     try{
       const r=await fetch("/api/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"dashboard",since:R.since,until:R.until,costOverrides:loadOvr(),manualCosts:loadManual(),assumeRate:loadRate()})});
       res=await r.json();
-    }catch(e){ gs.textContent=""; showGlobalError("通信エラー: "+String(e)); return; }
+    }catch(e){ if(myGen!==loadGen) return; gs.textContent=""; showGlobalError("通信エラー: "+String(e)); return; }
+    if(myGen!==loadGen) return; // より新しい読み込みが始まっている→この応答は破棄
     if(res.error){ gs.textContent=""; showGlobalError("データ取得エラー: "+res.error); ["dotIns","dotProd","dotDaily","dotHour","dotDow","dotNewEx","dotTrend"].forEach(d=>setDot(d,"bad")); return; }
     DATA=res;
     document.getElementById("storeSub").textContent=`TikTok Shop連携 · ${esc(res.shop&&res.shop.name||"")} · ${esc(res.range.since)}〜${esc(res.range.until)}`;
@@ -777,7 +788,7 @@ async function loadAll(){
     for(const fn of renders){ try{ fn(); }catch(err){ failed++; console.error("描画エラー("+(fn.name||"?")+"):",err); } }
     if(failed) showGlobalError(`一部の表示（${failed}カード）でエラーが発生しました。詳細はブラウザのコンソールを確認してください。`);
   } finally {
-    showLoading(false);
+    if(myGen===loadGen){ showLoading(false); setControlsDisabled(false); }
   }
 }
 
@@ -807,7 +818,16 @@ function renderOverview(){
       showGlobalError("返金データの取得に失敗しました。売上KPIは返金差引前の金額で表示されています: "+refErr);
     }else{
       refEl.textContent=num(ret.count||0)+"件";
-      document.getElementById("kpiRefundD").textContent=(ret.count||0)?`返金 ${yen(ret.amount||0)}（売上から ${yk(refAmt)} 差引）`:"返品・返金済みなし";
+      if(ret.count){
+        // M-1: 返金総額のうち「売上から実際に差し引いた分」と「キャンセル注文で元々未計上の分」を分けて明示。
+        const notDeducted=Math.max(0,(ret.amount||0)-refAmt);
+        let d=`返金 ${yen(ret.amount||0)}`;
+        if(refAmt>0) d+=`／うち売上から ${yk(refAmt)} 差引`;
+        if(notDeducted>0) d+=`／うち ${yk(notDeducted)} はキャンセル注文分（売上未計上）`;
+        document.getElementById("kpiRefundD").textContent=d;
+      } else {
+        document.getElementById("kpiRefundD").textContent="返品・返金済みなし";
+      }
     }
   }
   const c=DATA.customers||{};
@@ -958,9 +978,9 @@ function markDirty(){ const e=document.getElementById("ovrStatus"); if(e) e.text
 // ===== 月次進捗・目標・配信効率・スナップショット =====
 const GOAL_KEY="peak_tt_goals_v1", SHIFT_KEY="peak_tt_shifts_v1";
 function loadGoals(){ try{return JSON.parse(localStorage.getItem(GOAL_KEY)||"{}");}catch(e){return{};} }
-function saveGoals(o){ localStorage.setItem(GOAL_KEY,JSON.stringify(o)); }
+function saveGoals(o){ lsSet(GOAL_KEY,JSON.stringify(o)); }
 function loadShifts(){ try{return JSON.parse(localStorage.getItem(SHIFT_KEY)||"[]");}catch(e){return[];} }
-function saveShifts(a){ localStorage.setItem(SHIFT_KEY,JSON.stringify(a)); }
+function saveShifts(a){ lsSet(SHIFT_KEY,JSON.stringify(a)); }
 function shiftHours(s){ if(!s.start||!s.end) return 0; const a=s.start.split(":").map(Number),b=s.end.split(":").map(Number); let d=(b[0]*60+b[1])-(a[0]*60+a[1]); if(d<0)d+=1440; return d/60; }
 function liveHoursInRange(since,until){ let h=0; loadShifts().forEach(s=>{ if(s.date>=since&&s.date<=until) h+=shiftHours(s); }); return h; }
 function renderProgress(){
@@ -976,8 +996,10 @@ function renderProgress(){
   // 前月同日比（trends.daysAllから）
   const days=(DATA.trends&&DATA.trends.daysAll)||[]; const m={}; days.forEach(d=>m[d.key]=d.sales);
   const sumR=(s,e)=>{ let t=0; for(const k in m){ if(k>=s&&k<=e) t+=m[k]; } return t; };
-  let momTxt="—", momD="前月同期間のデータなし";
-  if(refMonth){ const a=refMonth.split("-").map(Number);
+  // M-10: 前月同日比は月次期間（当月/先月/月を選ぶ）でのみ意味がある。
+  //       直近N日など月をまたぐ期間では比較対象がズレて無意味な%になるため出さない。
+  let momTxt="—", momD= isMonthly ? "前月同期間のデータなし" : "月次期間（当月/先月/月選択）でのみ表示";
+  if(isMonthly && refMonth){ const a=refMonth.split("-").map(Number);
     const endDay=Number(until.slice(8,10))||1;
     const prevFirst=new Date(Date.UTC(a[0],a[1]-2,1)).toISOString().slice(0,10);
     const pLast=new Date(Date.UTC(a[0],a[1]-1,0)).getUTCDate();
@@ -1262,7 +1284,7 @@ function renderReturnCustomers(){
   document.getElementById("rcRepeat").textContent=num(rc.monthRepeatBuyers||0)+"人";
   const list=rc.list||[]; const el=document.getElementById("rcBody");
   if(!list.length){ el.innerHTML=`<div class="muted">この期間に発送後の返品・返金はありません。</div>`; return; }
-  let h=`<table class="cctbl"><thead><tr><th style="width:32px">#</th><th>購入者名</th><th>TikTok内部ID（数値）</th><th style="width:80px">今月返品</th><th style="width:80px">累計返品</th><th style="width:96px">今月返金額</th><th style="width:110px">注文ID</th></tr></thead><tbody>`;
+  let h=`<table class="cctbl"><thead><tr><th style="width:32px">#</th><th>購入者名</th><th>TikTok内部ID（数値）</th><th style="width:80px">期間内返品</th><th style="width:80px">累計返品</th><th style="width:96px">期間内返金額</th><th style="width:110px">注文ID</th></tr></thead><tbody>`;
   list.forEach(r=>{ const oids=(r.orderIds||[]);
     const oidCell=oids.length?`<details class="oid"><summary>${num(oids.length)}件 ▾</summary><div>${oids.map(esc).join("<br>")}</div></details>`:`<span class="muted">—</span>`;
     const nm=r.name?esc(r.name):'<span class="muted">（名前なし）</span>';
@@ -1350,10 +1372,17 @@ function renderDaily(){
     const map={};
     [...dayKeys].forEach(dt=>{ const k=weekStartJS(dt); const b=map[k]||(map[k]={key:k,sales:0,orders:0,units:0,liveSec:0,liveCnt:0,liveDays:0,unknown:false}); const d=salesByDate[dt]; if(d){ b.sales+=d.sales; b.orders+=d.orders; b.units+=d.units; } const lh=lhDays[dt]; if(lh){ b.liveSec+=lh.sec||0; b.liveCnt+=lh.cnt||0; if((lh.sec||0)>0)b.liveDays++; } });
     rows=Object.values(map).sort((a,b)=>a.key<b.key?-1:1);
-  }else{ // month: 月次背景データを使用
+  }else{ // month
     const map={};
     raw.forEach(d=>{ const k=d.date.slice(0,7); const b=map[k]||(map[k]={key:k,sales:0,orders:0,units:0}); b.sales+=d.sales; b.orders+=d.orders; b.units+=d.units; });
-    rows=Object.values(map).sort((a,b)=>a.key<b.key?-1:1).map(b=>{ const lh=lhMon[b.key]||{}; return {...b,liveSec:lh.sec||0,liveCnt:lh.cnt||0,liveDays:lh.days||0,unknown:!!lh.unknown}; });
+    rows=Object.values(map).sort((a,b)=>a.key<b.key?-1:1).map(b=>{
+      // M-3: 配信時間は「その月かつ選択期間内」の日次を合算（部分月でも日別/週別の合計と一致する）。
+      //      日次がまったく無い月だけ月次背景値にフォールバック。
+      let sec=0,cnt=0,days=0,hasDaily=false;
+      Object.keys(lhDays).forEach(dk=>{ if(dk.slice(0,7)===b.key && inPeriod(dk)){ hasDaily=true; const v=lhDays[dk]; sec+=v.sec||0; cnt+=v.cnt||0; if((v.sec||0)>0)days++; } });
+      if(hasDaily) return {...b,liveSec:sec,liveCnt:cnt,liveDays:days,unknown:false};
+      const lh=lhMon[b.key]||{}; return {...b,liveSec:lh.sec||0,liveCnt:lh.cnt||0,liveDays:lh.days||0,unknown:!!lh.unknown};
+    });
   }
   const fmtMD=(ds)=>{ const p=String(ds).split("-"); return p.length>=3?(+p[1])+"/"+(+p[2]):ds; };
   const weekLabel=(k)=>fmtMD(k)+"〜"+fmtMD(addDays(k,6));
@@ -1548,7 +1577,7 @@ function renderWoW(){
 /* ===== 施策タイミング（localStorage） ===== */
 const CMP_KEY="peak_tt_campaigns_v1"; let cmpWin=7;
 function loadCmps(){ try{return JSON.parse(localStorage.getItem(CMP_KEY)||"[]");}catch(e){return [];} }
-function saveCmps(a){ localStorage.setItem(CMP_KEY,JSON.stringify(a)); }
+function saveCmps(a){ lsSet(CMP_KEY,JSON.stringify(a)); }
 function renderCmpList(){
   const cs=loadCmps().sort((a,b)=>a.date<b.date?-1:1);
   if(!cs.length){ document.getElementById("cmpList").innerHTML=`<div class="muted">施策はまだ登録されていません。上のフォームから追加してください。</div>`; return; }
@@ -1599,7 +1628,7 @@ document.getElementById("tabs").addEventListener("click",e=>{ const t=e.target.c
 const ACC_KEY="peak_acc_collapsed_v1";
 function accGet(){ try{return new Set(JSON.parse(localStorage.getItem(ACC_KEY)||"[]"));}catch(e){return new Set();} }
 function accSave(s){ try{localStorage.setItem(ACC_KEY,JSON.stringify([...s]));}catch(e){} }
-function accKeyOf(h2){ return (h2.textContent||"").replace(/\s+/g," ").trim().slice(0,48); }
+function accKeyOf(h2){ return h2.dataset.acc || (h2.textContent||"").replace(/\s+/g," ").trim().slice(0,48); }
 function initAccordion(){ const s=accGet(); document.querySelectorAll(".panel > .card > h2").forEach(h2=>{ if(s.has(accKeyOf(h2))) h2.parentElement.classList.add("collapsed"); }); }
 document.addEventListener("click",e=>{
   const h2=e.target.closest("h2"); if(!h2) return;
@@ -1617,6 +1646,11 @@ document.getElementById("period").addEventListener("change",e=>{ const v=e.targe
   loadAll();
 });
 document.getElementById("monthPick").addEventListener("change",()=>{ if(document.getElementById("period").value==="month") loadAll(); });
+// L-1: カスタム期間は開始・終了の両方が入ったら自動で再読込（従来は再読込ボタンを押す必要があった）
+{ const reloadIfCustomReady=()=>{ if(document.getElementById("period").value!=="custom") return; const s=document.getElementById("dFrom").value, e=document.getElementById("dTo").value; if(s&&e) loadAll(); };
+  const df=document.getElementById("dFrom"), dt=document.getElementById("dTo");
+  if(df) df.addEventListener("change",reloadIfCustomReady);
+  if(dt) dt.addEventListener("change",reloadIfCustomReady); }
 document.getElementById("reloadBtn").addEventListener("click",loadAll);
 document.getElementById("reportBtn").addEventListener("click",()=>window.print());
 document.getElementById("prodSearch").addEventListener("input",()=>{expanded["prod"]=false; renderProducts();});
@@ -1653,7 +1687,7 @@ document.getElementById("liveAddBtn").addEventListener("click",async()=>{
 
 const ACT_KEY="peak_tt_actions_v2"; let actFilter="all";
 function loadActs(){ try{return JSON.parse(localStorage.getItem(ACT_KEY)||"[]");}catch(e){return [];} }
-function saveActs(a){ localStorage.setItem(ACT_KEY,JSON.stringify(a)); }
+function saveActs(a){ lsSet(ACT_KEY,JSON.stringify(a)); }
 function renderActs(){
   const acts=loadActs().sort((a,b)=>String(a.date||"9999-99-99").localeCompare(String(b.date||"9999-99-99")));
   const todo=acts.filter(a=>!a.done).length, done=acts.filter(a=>a.done).length;
