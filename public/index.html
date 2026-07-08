@@ -180,6 +180,7 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
     </span>
     <button class="primary" id="reloadBtn">↻ 再読み込み</button>
     <button id="reportBtn">📄 レポート(PDF)</button>
+    <button id="csvBtn" title="表示中の期間の商品売上ランキングをCSV(Excel対応)で書き出します">🧾 売上ランキングCSV</button>
     <span class="progress" id="globalStatus"></span>
   </div>
   <div id="snapBar" style="display:none;margin:0 0 10px;padding:8px 12px;border-radius:8px;font-size:12.5px"></div>
@@ -1653,6 +1654,30 @@ document.getElementById("monthPick").addEventListener("change",()=>{ if(document
   if(dt) dt.addEventListener("change",reloadIfCustomReady); }
 document.getElementById("reloadBtn").addEventListener("click",loadAll);
 document.getElementById("reportBtn").addEventListener("click",()=>window.print());
+// ===== 商品売上ランキングCSV書き出し（表示中の期間・読込済みデータから生成／追加API呼び出しなし） =====
+function exportProductsCsv(){
+  if(!DATA||!DATA.products||!DATA.products.length){ alert("先にデータを読み込んでください（『↻ 再読み込み』）。"); return; }
+  const norm=s=>String(s||"").replace(/[\s　]/g,"").toLowerCase();
+  const ttMap={}; ((DATA.ttStock&&DATA.ttStock.items)||[]).forEach(it=>{ if(it.title){ const k=norm(it.title); if(!(k in ttMap)) ttMap[k]={stock:it.stock,salePrice:it.salePrice}; } });
+  const srcLabel=s=>{ if(s==="estimate") return "推定(売価×係数)"; if(s==="manual-cost") return "手動入力"; if(s==="manual-none") return "0円指定"; if(s==="manual"||(s&&s.indexOf("sd")===0)) return "SD実原価"; return s||""; };
+  const q=v=>{ v=(v==null?"":String(v)); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  const headers=["順位","商品名","売上(円)","販売個数","注文数","販売価格(円)","原価/個(円)","原価合計(円)","粗利益(円)","粗利率(%)","原価区分","在庫数","新規顧客(人)","既存顧客(人)"];
+  const rows=[headers.join(",")];
+  DATA.products.forEach((p,i)=>{ const m=ttMap[norm(p.name)]||{};
+    rows.push([ i+1, q(p.name), Math.round(p.net||0), p.units||0, p.orders||0,
+      (m.salePrice!=null?m.salePrice:""), Math.round(p.costUnit||0), Math.round(p.costTotal||0),
+      Math.round(p.grossProfit||0), (p.margin!=null?(p.margin*100).toFixed(1):""), q(srcLabel(p.costSource)),
+      (m.stock!=null?m.stock:""), p.newBuyers||0, p.existBuyers||0 ].join(",")); });
+  const csv="﻿"+rows.join("\r\n")+"\r\n";
+  const r=DATA.range||{}; const since=(r.since||"").replace(/-/g,""); const until=(r.until==="today"?ymd(jstNow()):(r.until||"")).replace(/-/g,"");
+  const fname=`PeaK_商品売上ランキング_${since}-${until}.csv`;
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob); const a=document.createElement("a");
+  a.href=url; a.download=fname; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },500);
+  const gs=document.getElementById("globalStatus"); if(gs) gs.textContent=`CSVを書き出しました（${DATA.products.length}商品）`;
+}
+document.getElementById("csvBtn").addEventListener("click",exportProductsCsv);
 document.getElementById("prodSearch").addEventListener("input",()=>{expanded["prod"]=false; renderProducts();});
 document.getElementById("newProdSearch").addEventListener("input",()=>{expanded["newp"]=false; renderNewProducts();});
 document.getElementById("repProdSearch").addEventListener("input",()=>{expanded["repp"]=false; renderRepeatProducts();});
