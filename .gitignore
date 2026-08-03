@@ -3,3 +3,4 @@
 node_modules
 .DS_Store
 !.env.example
+REVIEW_BUNDLE.md
