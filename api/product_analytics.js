@@ -39,7 +39,18 @@ export default async function handler(req, res) {
     const shop = await getShop(env);
     const query = { start_date_ge: since, end_date_lt: addDay(until) };
     const j = await callTT({ path: `/analytics/202405/shop_products/${id}/performance`, method: "GET", query, env, shopCipher: shop.cipher });
-    if (j.code !== 0) { res.status(200).json({ ok: false, code: j.code, error: j.message || "取得失敗" }); return; }
+    if (j.code !== 0) {
+      // 28001007 = TikTokの分析APIがこの商品IDに対応していない（比較的新しく作成された商品で多発）。
+      // ショップには存在していても分析データが提供されないケースがあるため、恒久的な非対応として扱う。
+      const unsupported = Number(j.code) === 28001007 || /Precondition Required|existing product/i.test(String(j.message || ""));
+      res.status(200).json({
+        ok: false, code: j.code, unsupported,
+        error: unsupported
+          ? "この商品はTikTokの分析APIが対応していません（TikTok側の制約。比較的新しい商品で発生します）"
+          : (j.message || "取得失敗"),
+      });
+      return;
+    }
     const m = pick(j.data || {});
     res.status(200).json({ ok: true, id, since, until, metrics: m });
   } catch (e) {

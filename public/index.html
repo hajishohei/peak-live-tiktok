@@ -263,6 +263,19 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
       <div style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
         <input id="prodSearch" placeholder="🔍 商品名で検索…" style="width:240px">
         <span class="muted" id="prodCount"></span>
+        <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+          <select id="prodCopyN" style="font-size:12px;padding:4px 8px">
+            <option value="10">上位10件</option>
+            <option value="20">上位20件</option>
+            <option value="30">上位30件</option>
+            <option value="50" selected>上位50件</option>
+            <option value="100">上位100件</option>
+            <option value="0">全件</option>
+          </select>
+          <button class="mini" id="prodCopyName" title="商品名だけを改行区切りでコピーします。スプレッドシートに貼ると縦1列になります">📋 商品名をコピー</button>
+          <button class="mini" id="prodCopyTsv" title="商品名・売上・販売個数などを表形式でコピーします。スプレッドシートに貼ると表になります">📋 表ごとコピー</button>
+          <span class="muted" id="prodCopyMsg" style="font-size:11.5px"></span>
+        </span>
       </div>
       <div id="prodBody"><div class="loading">読み込み中…</div></div>
     </div>
@@ -896,6 +909,40 @@ function renderOverview(){
   setDot("dotIns","ok");
 }
 
+// TikTok分析APIが非対応と判明した商品ID（このセッション中は再試行しない）
+const PA_NG=new Set();
+// 商品名だけ／表ごと をクリップボードへ（スプレッドシートに貼ると縦1列・表になる）
+function prodCopyRows(){
+  const q=(document.getElementById("prodSearch").value||"").trim().toLowerCase();
+  let rows=(DATA&&DATA.products||[]).filter(r=>!q||r.name.toLowerCase().includes(q));
+  const k=prodSort.key,dir=prodSort.dir; rows=rows.slice().sort((a,b)=>(a[k]<b[k]?-1:a[k]>b[k]?1:0)*dir);
+  const n=parseInt((document.getElementById("prodCopyN")||{}).value,10)||0;
+  return n>0?rows.slice(0,n):rows;
+}
+function prodCopyDo(mode){
+  const msg=document.getElementById("prodCopyMsg");
+  const rows=prodCopyRows();
+  if(!rows.length){ if(msg) msg.textContent="対象がありません"; return; }
+  let text;
+  if(mode==="name"){
+    // 改行区切り＝スプレッドシートに貼ると縦1列になる
+    text=rows.map(r=>String(r.name||"").replace(/[\t\r\n]/g," ").trim()).join("\n");
+  }else{
+    // TSV＝スプレッドシートに貼ると表になる
+    const head=["順位","商品名","純売上","販売個数","注文数","粗利益","粗利率","新規顧客","既存顧客"];
+    text=[head.join("\t")].concat(rows.map((r,i)=>[
+      i+1, String(r.name||"").replace(/[\t\r\n]/g," ").trim(), Math.round(r.net||0), r.units||0, r.orders||0,
+      Math.round(r.grossProfit||0), (r.margin!=null?(r.margin*100).toFixed(1)+"%":""), r.newBuyers||0, r.existBuyers||0
+    ].join("\t"))).join("\n");
+  }
+  const done=()=>{ if(msg){ msg.textContent=`✓ ${rows.length}件コピーしました`; setTimeout(()=>{msg.textContent="";},4000);} };
+  const fallback=()=>{ const ta=document.createElement("textarea"); ta.value=text;
+    ta.style.cssText="position:fixed;left:-9999px;top:0"; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand("copy"); done(); }catch(e){ if(msg) msg.textContent="✗ コピーできませんでした"; }
+    ta.remove(); };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(fallback);
+  else fallback();
+}
 let prodSort={key:"net",dir:-1};
 function renderProducts(){
   const q=(document.getElementById("prodSearch").value||"").trim().toLowerCase();
@@ -921,7 +968,7 @@ function renderProducts(){
   const ttMap={}; ttItems.forEach(it=>{ if(it.title) ttMap[pNorm(it.title)]=it.id; });
   const findTTId=(name)=>ttMap[pNorm(name)]||null;
   show.forEach((r,i)=>{ const mcol=(r.margin||0)>=0.4?"#2f6f4f":((r.margin||0)>=0.2?"#d4861f":"#b3261e"); const pid=findTTId(r.name);
-    h+=`<tr><td>${esc(r.name)}${i===0&&!q&&!expanded["prod"]&&prodSort.key==="net"&&prodSort.dir<0?'<span class="hero">売上1位</span>':''}</td><td>${yen(r.net)}</td><td>${num(r.units)}個</td><td>${yen(r.costUnit||0)} ${costSrcBadge(r.costSource)}</td><td style="font-weight:600;color:${mcol}">${yen(r.grossProfit||0)}</td><td style="font-weight:700;color:${mcol}">${pct(r.margin||0)}</td><td>${num(r.orders)}</td><td style="color:#2f6f4f;font-weight:600">${num(r.newBuyers)}人</td><td>${num(r.existBuyers)}人</td><td>${pid?`<button class="mini" data-pa="${esc(r.name)}" data-paid="${esc(pid)}">分析 ▾</button>`:'<span class="muted" style="font-size:11px">—</span>'}</td></tr>`; });
+    h+=`<tr><td>${esc(r.name)}${i===0&&!q&&!expanded["prod"]&&prodSort.key==="net"&&prodSort.dir<0?'<span class="hero">売上1位</span>':''}</td><td>${yen(r.net)}</td><td>${num(r.units)}個</td><td>${yen(r.costUnit||0)} ${costSrcBadge(r.costSource)}</td><td style="font-weight:600;color:${mcol}">${yen(r.grossProfit||0)}</td><td style="font-weight:700;color:${mcol}">${pct(r.margin||0)}</td><td>${num(r.orders)}</td><td style="color:#2f6f4f;font-weight:600">${num(r.newBuyers)}人</td><td>${num(r.existBuyers)}人</td><td>${(pid&&!PA_NG.has(pid))?`<button class="mini" data-pa="${esc(r.name)}" data-paid="${esc(pid)}">分析 ▾</button>`:(pid?'<span class="muted" style="font-size:11px" title="TikTokの分析APIが非対応の商品です">分析なし</span>':'<span class="muted" style="font-size:11px">—</span>')}</td></tr>`; });
   document.getElementById("prodBody").innerHTML=h+`</tbody></table>`+moreBtn("prod",total);
   document.querySelectorAll('#prodBody th.sortable').forEach(th=>th.addEventListener("click",()=>{const key=th.dataset.k; if(prodSort.key===key)prodSort.dir*=-1; else{prodSort.key=key; prodSort.dir=key==="name"?1:-1;} renderProducts();}));
   document.querySelectorAll('#prodBody [data-exp]').forEach(b=>b.addEventListener("click",()=>{expanded["prod"]=!expanded["prod"]; renderProducts();}));
@@ -933,14 +980,27 @@ function renderProducts(){
     td.innerHTML='<div class="loading" style="padding:6px">TikTok分析を取得中…</div>'; dr.appendChild(td); tr.after(dr);
     const R=DATA.range||{};
     try{
+      const cell=(l,v,c)=>`<div style="display:inline-block;min-width:128px;margin:2px 14px 2px 0"><span class="muted" style="font-size:11px">${l}</span><br><b style="font-size:15px${c?';color:'+c:''}">${v}</b></div>`;
+      // 自社の注文データ（TikTok分析が使えない場合のフォールバック兼補足）
+      const own=(DATA.products||[]).find(x=>x.name===name)||{};
+      const ownHtml=`<div style="padding:8px 6px;background:#f3f7f4;border-radius:8px;margin-top:6px">
+        <div style="font-size:11px;color:#666;margin-bottom:4px">自社の注文データ（${esc(R.since)}〜${esc(R.until)}）</div>
+        ${cell("純売上", yen(own.net||0))}${cell("注文数", num(own.orders||0))}${cell("販売個数", num(own.units||0)+"個")}${cell("新規/既存(人)", num(own.newBuyers||0)+" / "+num(own.existBuyers||0))}${cell("粗利益", yen(own.grossProfit||0), (own.margin||0)>=0.4?"#2f6f4f":"#d4861f")}
+      </div>`;
       const rs=await fetch(`/api/product_analytics?id=${encodeURIComponent(id)}&since=${encodeURIComponent(R.since)}&until=${encodeURIComponent(R.until)}`);
       const j=await rs.json();
-      if(!j.ok){ td.innerHTML=`<div class="err" style="margin:4px">TikTok分析を取得できませんでした: ${esc(j.error||"")}</div>`; return; }
-      const m=j.metrics||{}; const cell=(l,v)=>`<div style="display:inline-block;min-width:130px;margin:2px 14px 2px 0"><span class="muted" style="font-size:11px">${l}</span><br><b style="font-size:15px">${v}</b></div>`;
+      if(!j.ok){
+        if(j.unsupported) PA_NG.add(id);   // 以後この商品はボタンを出さない
+        td.innerHTML=`<div class="note" style="margin:4px 0;font-size:12.5px">${j.unsupported
+          ? "ℹ️ この商品は <b>TikTokの分析API（CTR等）が非対応</b>です。TikTok側の制約で、比較的新しく作成された商品で発生します。<br>代わりに自社の注文データを表示します。"
+          : "TikTok分析を取得できませんでした: "+esc(j.error||"")}</div>`+ownHtml;
+        return;
+      }
+      const m=j.metrics||{};
       td.innerHTML=`<div style="padding:8px 6px;background:#faf7f0;border-radius:8px">
         <div style="font-size:11px;color:#888;margin-bottom:4px">TikTok Shop 分析（${esc(R.since)}〜${esc(R.until)}）</div>
-        ${cell("GMV", m.gmv!=null?yen(m.gmv):"—")}${cell("注文数", m.orders!=null?num(m.orders):"—")}${cell("販売数", m.units!=null?num(m.units)+"個":"—")}${cell("CTR(クリック率)", m.ctr!=null?(m.ctr*100).toFixed(2)+"%":"—")}
-      </div>`;
+        ${cell("GMV", m.gmv!=null?yen(m.gmv):"—")}${cell("注文数", m.orders!=null?num(m.orders):"—")}${cell("販売数", m.units!=null?num(m.units)+"個":"—")}${cell("CTR(クリック率)", m.ctr!=null?(m.ctr*100).toFixed(2)+"%":"—", "#2f6f4f")}
+      </div>`+ownHtml;
     }catch(e){ td.innerHTML=`<div class="err" style="margin:4px">通信エラー</div>`; }
   }));
   setDot("dotProd","ok");
@@ -1943,6 +2003,9 @@ function renderBuyAll(){ renderBuyGenreOptions(); renderBuySim(); renderBuyGenre
   const g=document.getElementById("bsGenre"); if(g) g.addEventListener("change",renderBuySim);
   ["bsPrice","bsCost","bsQty","bsGoal"].forEach(function(id){ const e=document.getElementById(id); if(e) e.addEventListener("keydown",function(ev){ if(ev.key==="Enter") renderBuySim(); }); });
   renderBuyBench(); renderBuySim(); }
+document.getElementById("prodSearch").addEventListener("input",()=>{expanded["prod"]=false; renderProducts();});
+{ const a=document.getElementById("prodCopyName"); if(a) a.addEventListener("click",()=>prodCopyDo("name"));
+  const b=document.getElementById("prodCopyTsv"); if(b) b.addEventListener("click",()=>prodCopyDo("tsv")); }
 document.getElementById("newProdSearch").addEventListener("input",()=>{expanded["newp"]=false; renderNewProducts();});
 document.getElementById("repProdSearch").addEventListener("input",()=>{expanded["repp"]=false; renderRepeatProducts();});
 document.getElementById("invSearch").addEventListener("input",()=>{expanded["inv"]=false; renderStock();});
