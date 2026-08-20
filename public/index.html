@@ -193,6 +193,7 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
     <div class="tab" data-tab="trend">推移・施策効果</div>
     <div class="tab" data-tab="daily">売上推移</div>
     <div class="tab" data-tab="compare">期間比較</div>
+    <div class="tab" data-tab="factor">要因分析</div>
     <div class="tab" data-tab="timing">タイミング</div>
     <div class="tab" data-tab="shift">配信シフト</div>
     <div class="tab" data-tab="action">アクション</div>
@@ -481,6 +482,49 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
       </div>
       <div id="cmpStatus" class="muted" style="margin:8px 0"></div>
       <div id="cmpResult"></div>
+    </div>
+  </div>
+
+  <!-- FACTOR / 要因分析 -->
+  <div class="panel" id="panel-factor">
+    <div class="card">
+      <h2 data-acc="factorsetup">🔍 売上の増減要因を分解する</h2>
+      <p class="desc">2つの月（期間）を選ぶと、<b>売上の差がどの数値から生まれたのか</b>を金額に分解します。「配信時間が減ったからか」「単価が下がったからか」を切り分けられます。</p>
+      <div class="cmp-setup">
+        <div class="cmp-col">
+          <div class="cmp-tag" style="background:#f2f1ed;color:#555">比較元（前）</div>
+          <select id="fcPresetA" style="min-width:150px"></select>
+          <span id="fcCustomA" style="display:none"><input type="date" id="fcFromA"> 〜 <input type="date" id="fcToA"></span>
+        </div>
+        <div class="cmp-col">
+          <div class="cmp-tag" style="background:#eef4f0;color:#1d5b3a">比較先（後）</div>
+          <select id="fcPresetB" style="min-width:150px"></select>
+          <span id="fcCustomB" style="display:none"><input type="date" id="fcFromB"> 〜 <input type="date" id="fcToB"></span>
+        </div>
+        <button class="primary" id="fcRun">🔍 要因を分析する</button>
+      </div>
+      <div id="fcStatus" class="muted" style="margin:8px 0"></div>
+      <div id="fcSummary"></div>
+    </div>
+    <div class="card" id="fcInsightCard" style="display:none">
+      <h2 data-acc="factorai">🤖 自動分析（示唆）</h2>
+      <p class="desc">数値から自動で要因を特定し、優先して手を打つべきポイントを提示します。</p>
+      <div id="fcInsight"></div>
+    </div>
+    <div class="card" id="fcWfCard" style="display:none">
+      <h2 data-acc="factorwf">📊 要因分解（金額への影響）</h2>
+      <p class="desc">売上の差を「配信時間」「配信効率」「買上点数」「商品単価」の4要因に分解します。合計は必ず売上差と一致します。</p>
+      <div id="fcWaterfall"></div>
+    </div>
+    <div class="card" id="fcTblCard" style="display:none">
+      <h2 data-acc="factortbl">📋 全指標の比較（個別に見る）</h2>
+      <p class="desc">どの指標が改善／悪化したかを一覧で確認できます。</p>
+      <div id="fcTable"></div>
+    </div>
+    <div class="card" id="fcProdCard" style="display:none">
+      <h2 data-acc="factorprod">🛍️ 商品別の増減（何が売れなくなったか）</h2>
+      <p class="desc">売上を押し下げた商品・押し上げた商品を金額差の大きい順に表示します。</p>
+      <div id="fcProducts"></div>
     </div>
   </div>
 
@@ -1771,6 +1815,296 @@ function exportProductsCsv(){
   const gs=document.getElementById("globalStatus"); if(gs) gs.textContent=`CSVを書き出しました（${DATA.products.length}商品）`;
 }
 document.getElementById("csvBtn").addEventListener("click",exportProductsCsv);
+
+/* ===== 要因分析：売上の増減をどの数値が生んだのか分解する ===== */
+// 月プルダウンの選択肢（直近14ヶ月＋プリセット）
+function fcMonthOptions(){
+  const now=jstNow(); const out=[];
+  out.push({v:"thismonth",l:"当月"}); out.push({v:"lastmonth",l:"先月"});
+  for(let i=0;i<14;i++){
+    const d=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth()-i,1));
+    const k=d.toISOString().slice(0,7);
+    out.push({v:"m:"+k,l:k});
+  }
+  out.push({v:"-30d",l:"直近30日"}); out.push({v:"-90d",l:"直近90日"}); out.push({v:"custom",l:"カスタム…"});
+  return out;
+}
+function fcResolve(preset,fromId,toId){
+  if(String(preset).indexOf("m:")===0){
+    const k=preset.slice(2), a=k.split("-").map(Number);
+    const s=new Date(Date.UTC(a[0],a[1]-1,1)), e=new Date(Date.UTC(a[0],a[1],0));
+    const today=ymd(jstNow()), eStr=ymd(e);
+    return {since:ymd(s), until:(eStr>today?"today":eStr), label:k};
+  }
+  return cmpResolve(preset,fromId,toId);
+}
+// 期間内の配信実績（日数・時間・回数）
+function fcLive(res){
+  const days=(res.trends&&res.trends.daysAll)||[];
+  const since=res.range&&res.range.since, until=res.range&&res.range.until;
+  const inR=k=>(!since||k>=since)&&(!until||until==="today"||k<=until);
+  let sec=0,d=0,cnt=0;
+  days.forEach(x=>{ if(inR(x.key)){ sec+=x.liveSec||0; cnt+=x.liveCount||0; if((x.liveSec||0)>0) d++; } });
+  return {sec,days:d,count:cnt,hours:sec/3600};
+}
+// 分析に使う指標をひとまとめに
+function fcMetrics(res){
+  const t=res.totals||{}, c=res.customers||{}, cn=res.cancellations||{}, rt=res.returns||{}, pr=res.profit||{};
+  const lv=fcLive(res);
+  const sales=t.sales||0, orders=t.orders||0, units=t.units||0;
+  const days=(res.trends&&res.trends.daysAll)||[];
+  const since=res.range&&res.range.since, until=res.range&&res.range.until;
+  const inR=k=>(!since||k>=since)&&(!until||until==="today"||k<=until);
+  const salesDays=days.filter(x=>inR(x.key)&&(x.sales||0)>0).length;
+  return {
+    range:res.range||{},
+    sales, orders, units,
+    aov: orders? sales/orders : 0,
+    upo: orders? units/orders : 0,          // 1注文あたり点数
+    price: units? sales/units : 0,          // 平均商品単価
+    hours: lv.hours, liveDays: lv.days, liveCount: lv.count,
+    oph: lv.hours>0? orders/lv.hours : 0,   // 配信1時間あたり注文数
+    sph: lv.hours>0? sales/lv.hours : 0,    // 配信1時間あたり売上
+    perLiveDay: lv.days>0? sales/lv.days : 0,
+    hoursPerDay: lv.days>0? lv.hours/lv.days : 0,
+    salesDays,
+    newCount:c.newCount||0, firstOrders:c.firstOrders||0, repeatOrders:c.repeatOrders||0,
+    newRatio:c.newOrderRatio||0, repRate:c.repeatOrderRate||0,
+    newAov:c.newAov||0, repAov:c.repAov||0,
+    cancelCount:cn.count||0, cancelRate:cn.rate||0,
+    returnCount:rt.count||0, returnAmt:rt.amount||0,
+    grossProfit:pr.grossProfit||0, grossMargin:pr.grossMargin||0,
+    skuCount:(res.products||[]).filter(p=>(p.units||0)>0).length,
+    products:(res.products||[]).map(p=>({name:p.name,net:p.net||0,units:p.units||0}))
+  };
+}
+/* 売上 = 配信時間 × 時間あたり注文数 × 1注文あたり点数 × 商品単価
+   順次代入法で分解（合計は必ず売上差と一致する） */
+function fcDecompose(A,B){
+  const hasLive = A.hours>0 && B.hours>0;
+  const f=[];
+  if(hasLive){
+    const e1=(B.hours-A.hours)*A.oph*A.upo*A.price;
+    const e2=B.hours*(B.oph-A.oph)*A.upo*A.price;
+    const e3=B.hours*B.oph*(B.upo-A.upo)*A.price;
+    const e4=B.hours*B.oph*B.upo*(B.price-A.price);
+    f.push({k:"配信時間",v:e1,a:A.hours,b:B.hours,fmt:v=>v.toFixed(1)+"h",
+      why:"配信した総時間。減れば接触機会そのものが減ります。"});
+    f.push({k:"配信効率（時間あたり注文数）",v:e2,a:A.oph,b:B.oph,fmt:v=>v.toFixed(2)+"件/h",
+      why:"同じ時間でどれだけ注文を取れたか。配信の質・商品の刺さり方。"});
+    f.push({k:"買上点数（1注文あたり）",v:e3,a:A.upo,b:B.upo,fmt:v=>v.toFixed(2)+"点",
+      why:"まとめ買いの度合い。セット提案・送料無料ラインで動きます。"});
+    f.push({k:"商品単価（平均）",v:e4,a:A.price,b:B.price,fmt:v=>yen(v),
+      why:"売れた商品の価格帯。低単価商品に偏ると下がります。"});
+  }else{
+    const e1=(B.orders-A.orders)*A.aov;
+    const e2=B.orders*(B.aov-A.aov);
+    f.push({k:"注文数",v:e1,a:A.orders,b:B.orders,fmt:v=>num(Math.round(v))+"件",why:"注文の件数。"});
+    f.push({k:"平均注文額（AOV）",v:e2,a:A.aov,b:B.aov,fmt:v=>yen(v),why:"1注文あたりの金額。"});
+  }
+  return {factors:f, hasLive, total:f.reduce((s,x)=>s+x.v,0)};
+}
+/* 自動示唆の生成（数値から判定してテキスト化） */
+function fcInsights(A,B,dec){
+  const d=B.sales-A.sales, rate=A.sales? d/A.sales : 0;
+  const up=d>=0;
+  const ins=[];
+  const sorted=dec.factors.slice().sort((x,y)=>Math.abs(y.v)-Math.abs(x.v));
+  const chg=(a,b)=>a? ((b-a)/a*100) : 0;
+  // ① 総括
+  ins.push({t:"main", h:`売上は ${up?"増加":"減少"}：${yen(Math.abs(d))}（${(rate*100).toFixed(1)}%）`,
+    b:`${esc(A.range.since)}〜${esc(A.range.until)} の <b>${yen(A.sales)}</b> から、`
+      +`${esc(B.range.since)}〜${esc(B.range.until)} は <b>${yen(B.sales)}</b> になりました。`});
+  // ② 最大要因
+  const top=sorted[0];
+  if(top){
+    const neg=top.v<0;
+    ins.push({t:neg?"bad":"good",
+      h:`最大の要因は「${esc(top.k)}」：${neg?"−":"+"}${yen(Math.abs(top.v))}`,
+      b:`${esc(top.k)} が <b>${top.fmt(top.a)} → ${top.fmt(top.b)}</b>（${chg(top.a,top.b)>=0?"+":""}${chg(top.a,top.b).toFixed(1)}%）に変化し、`
+        +`売上を <b>${neg?"押し下げ":"押し上げ"}${yen(Math.abs(top.v))}</b> ました。売上差全体の ${Math.abs(d)?Math.round(Math.abs(top.v)/Math.abs(d)*100):0}% を占めます。<br>`
+        +`<span class="muted">${esc(top.why)}</span>`});
+  }
+  // ③ 2番目以降で無視できないもの
+  sorted.slice(1).forEach(f=>{
+    if(Math.abs(f.v) < Math.abs(d)*0.15 || Math.abs(f.v)<20000) return;
+    ins.push({t:f.v<0?"bad":"good", h:`${esc(f.k)}：${f.v<0?"−":"+"}${yen(Math.abs(f.v))}`,
+      b:`${top.fmt?"":""}${f.fmt(f.a)} → ${f.fmt(f.b)}（${chg(f.a,f.b)>=0?"+":""}${chg(f.a,f.b).toFixed(1)}%）<br><span class="muted">${esc(f.why)}</span>`});
+  });
+  // ④ 補助指標のチェック
+  const sub=[];
+  if(A.liveDays&&B.liveDays&&B.liveDays<A.liveDays) sub.push(`<b>配信日数が ${A.liveDays}日 → ${B.liveDays}日</b>（${B.liveDays-A.liveDays}日）に減っています。`);
+  if(A.hoursPerDay&&B.hoursPerDay&&chg(A.hoursPerDay,B.hoursPerDay)<-10) sub.push(`1日あたりの配信時間が <b>${A.hoursPerDay.toFixed(1)}h → ${B.hoursPerDay.toFixed(1)}h</b> と短くなっています。`);
+  if(B.cancelRate>A.cancelRate+0.02) sub.push(`キャンセル率が <b>${pct(A.cancelRate)} → ${pct(B.cancelRate)}</b> に悪化しています。`);
+  if(B.returnAmt>A.returnAmt*1.3&&B.returnAmt>30000) sub.push(`返金額が <b>${yen(A.returnAmt)} → ${yen(B.returnAmt)}</b> に増えています。`);
+  if(A.newCount&&chg(A.newCount,B.newCount)<-15) sub.push(`新規顧客が <b>${num(A.newCount)}人 → ${num(B.newCount)}人</b>（${chg(A.newCount,B.newCount).toFixed(0)}%）と減っています。`);
+  if(A.repRate&&B.repRate<A.repRate-0.05) sub.push(`リピート購入率が <b>${pct(A.repRate)} → ${pct(B.repRate)}</b> に低下しています。`);
+  if(A.skuCount&&chg(A.skuCount,B.skuCount)<-15) sub.push(`売れた商品の種類が <b>${num(A.skuCount)} → ${num(B.skuCount)}</b> と減り、品揃えが細っています。`);
+  if(sub.length) ins.push({t:"warn", h:"あわせて確認したい変化", b:"・"+sub.join("<br>・")});
+  // ⑤ アクション
+  const act=[];
+  if(top&&top.v<0){
+    if(top.k.indexOf("配信時間")===0) act.push("配信本数・時間を戻すのが最優先です。同じ効率なら時間の回復だけで売上は戻ります。");
+    else if(top.k.indexOf("配信効率")===0) act.push("配信の中身に原因があります。売れ筋の露出順・尺配分・訴求を前月の勝ちパターンと比較してください。");
+    else if(top.k.indexOf("買上点数")===0) act.push("まとめ買いが減っています。セット提案・「あと1点で送料無料」等の導線を強化してください。");
+    else if(top.k.indexOf("商品単価")===0) act.push("低単価商品に構成が偏っています。高単価商品の露出時間を増やすか、価格帯のバランスを見直してください。");
+    else if(top.k.indexOf("注文数")===0) act.push("注文件数の回復が最優先です。配信量・集客導線を確認してください。");
+  }
+  if(B.cancelRate>A.cancelRate+0.02) act.push("キャンセル率の悪化は在庫切れ・表記ミスが典型です。該当商品を「商品別キャンセル率」で特定してください。");
+  if(A.newCount&&chg(A.newCount,B.newCount)<-15) act.push("新規顧客の減少は入口商品の露出低下が原因のことが多いです。「新規獲得に効く商品」タブを確認してください。");
+  if(act.length) ins.push({t:"act", h:"打ち手の優先順位", b:act.map((a,i)=>`${i+1}. ${a}`).join("<br>")});
+  return ins;
+}
+async function fcRun(){
+  const st=document.getElementById("fcStatus");
+  const rA=fcResolve(document.getElementById("fcPresetA").value,"fcFromA","fcToA");
+  const rB=fcResolve(document.getElementById("fcPresetB").value,"fcFromB","fcToB");
+  if(!rA.since||!rA.until||!rB.since||!rB.until){ st.textContent="カスタムは開始日・終了日を入力してください。"; return; }
+  const btn=document.getElementById("fcRun"); if(btn){btn.disabled=true;btn.textContent="分析中…";}
+  st.textContent="2期間のデータを取得しています…（30秒ほどかかる場合があります）";
+  ["fcInsightCard","fcWfCard","fcTblCard","fcProdCard"].forEach(id=>{const e=document.getElementById(id); if(e)e.style.display="none";});
+  document.getElementById("fcSummary").innerHTML="";
+  try{
+    const resA=await cmpFetch(rA);
+    const resB=await cmpFetch(rB);
+    if(resA.error||resB.error){ st.innerHTML=`<span class="err">エラー: ${esc(resA.error||resB.error)}</span>`; return; }
+    const A=fcMetrics(resA), B=fcMetrics(resB);
+    const dec=fcDecompose(A,B);
+    fcRenderSummary(A,B,dec);
+    fcRenderInsight(A,B,dec);
+    fcRenderWaterfall(A,B,dec);
+    fcRenderTable(A,B);
+    fcRenderProducts(A,B);
+    st.textContent="";
+  }catch(e){ st.innerHTML=`<span class="err">通信エラー: ${esc(String(e))}</span>`; }
+  finally{ if(btn){btn.disabled=false;btn.textContent="🔍 要因を分析する";} }
+}
+function fcRenderSummary(A,B,dec){
+  const d=B.sales-A.sales, rate=A.sales?d/A.sales*100:0;
+  const col=d>=0?"#2f6f4f":"#cc3b30";
+  const kpi=(l,v,dd,c)=>`<div class="kpi"><div class="label">${l}</div><div class="val" style="font-size:20px${c?';color:'+c:''}">${v}</div><div class="delta">${dd||""}</div></div>`;
+  document.getElementById("fcSummary").innerHTML=
+    `<div class="kpis" style="grid-template-columns:repeat(4,1fr);margin-top:12px">
+      ${kpi("比較元の売上", yen(A.sales), `${esc(A.range.since)}〜${esc(A.range.until)}`)}
+      ${kpi("比較先の売上", yen(B.sales), `${esc(B.range.since)}〜${esc(B.range.until)}`)}
+      ${kpi("差額", (d>=0?"+":"−")+yen(Math.abs(d)), "比較先 − 比較元", col)}
+      ${kpi("変化率", (rate>=0?"+":"")+rate.toFixed(1)+"%", "", col)}
+    </div>`;
+}
+function fcRenderInsight(A,B,dec){
+  const ins=fcInsights(A,B,dec);
+  const cmap={main:{bd:"#d6d6d2",bg:"#faf9f7",fg:"#1a1a1a"},bad:{bd:"#e0a59f",bg:"#fdecea",fg:"#b3261e"},
+    good:{bd:"#cfe3d6",bg:"#f3f7f4",fg:"#1d5b3a"},warn:{bd:"#f3e3c6",bg:"#fff7ec",fg:"#9a5b00"},
+    act:{bd:"#cfd8e3",bg:"#f4f6f8",fg:"#2d4a86"}};
+  document.getElementById("fcInsight").innerHTML=ins.map(i=>{
+    const c=cmap[i.t]||cmap.main;
+    return `<div style="border:1px solid ${c.bd};background:${c.bg};border-radius:12px;padding:13px 16px;margin-bottom:10px">
+      <div style="font-weight:800;font-size:14.5px;color:${c.fg};margin-bottom:4px">${i.h}</div>
+      <div style="font-size:13.5px">${i.b}</div></div>`;
+  }).join("");
+  document.getElementById("fcInsightCard").style.display="block";
+}
+function fcRenderWaterfall(A,B,dec){
+  const d=B.sales-A.sales;
+  const maxAbs=Math.max(...dec.factors.map(f=>Math.abs(f.v)),1);
+  const chg=(a,b)=>a?((b-a)/a*100):0;
+  let h=`<table><thead><tr><th>要因</th><th>比較元</th><th>比較先</th><th>変化率</th><th>売上への影響</th><th style="width:150px">影響の大きさ</th></tr></thead><tbody>`;
+  dec.factors.slice().sort((x,y)=>Math.abs(y.v)-Math.abs(x.v)).forEach(f=>{
+    const neg=f.v<0, col=neg?"#cc3b30":"#2f6f4f";
+    const w=Math.max(3,Math.round(Math.abs(f.v)/maxAbs*100));
+    h+=`<tr><td style="font-weight:600">${esc(f.k)}<br><span class="muted" style="font-size:11px;font-weight:400">${esc(f.why)}</span></td>
+      <td>${f.fmt(f.a)}</td><td>${f.fmt(f.b)}</td>
+      <td style="color:${chg(f.a,f.b)>=0?'#2f6f4f':'#cc3b30'}">${chg(f.a,f.b)>=0?"+":""}${chg(f.a,f.b).toFixed(1)}%</td>
+      <td style="font-weight:800;color:${col}">${neg?"−":"+"}${yen(Math.abs(f.v))}</td>
+      <td><div style="height:14px;background:#f0efeb;border-radius:4px;overflow:hidden"><i style="display:block;height:100%;width:${w}%;background:${col};border-radius:4px"></i></div></td></tr>`;
+  });
+  h+=`<tr style="background:#f2f1ed"><td><b>合計（＝売上差）</b></td><td colspan="3"></td>
+    <td style="font-weight:800;color:${d>=0?'#2f6f4f':'#cc3b30'}">${d>=0?"+":"−"}${yen(Math.abs(d))}</td><td></td></tr></tbody></table>`;
+  if(!dec.hasLive) h+=`<div class="note" style="margin-top:10px">配信時間データが無い期間のため、<b>注文数 × 平均注文額</b>の2要因で分解しています。配信データが入ると4要因（配信時間・効率・買上点数・単価）に分解されます。</div>`;
+  else h+=`<div class="note" style="margin-top:10px"><b>読み方</b>：売上 ＝ 配信時間 × 時間あたり注文数 × 1注文あたり点数 × 商品単価 に分解し、各要因が単独で動いた場合の金額影響を計算しています。4つの合計は売上差と必ず一致します。</div>`;
+  document.getElementById("fcWaterfall").innerHTML=h;
+  document.getElementById("fcWfCard").style.display="block";
+}
+function fcRenderTable(A,B){
+  const rows=[
+    {g:"売上・利益"},
+    {k:"売上",a:A.sales,b:B.sales,f:yen,better:1},
+    {k:"粗利益（推定）",a:A.grossProfit,b:B.grossProfit,f:yen,better:1},
+    {k:"粗利率（推定）",a:A.grossMargin,b:B.grossMargin,f:pct,better:1,pt:1},
+    {g:"配信"},
+    {k:"配信日数",a:A.liveDays,b:B.liveDays,f:v=>num(v)+"日",better:1},
+    {k:"配信時間 合計",a:A.hours,b:B.hours,f:v=>v.toFixed(1)+"h",better:1},
+    {k:"1日あたり配信時間",a:A.hoursPerDay,b:B.hoursPerDay,f:v=>v.toFixed(1)+"h",better:1},
+    {k:"配信1時間あたり売上",a:A.sph,b:B.sph,f:yen,better:1},
+    {k:"配信1日あたり売上",a:A.perLiveDay,b:B.perLiveDay,f:yen,better:1},
+    {k:"配信1時間あたり注文数",a:A.oph,b:B.oph,f:v=>v.toFixed(2)+"件",better:1},
+    {g:"注文"},
+    {k:"注文数",a:A.orders,b:B.orders,f:v=>num(v)+"件",better:1},
+    {k:"販売個数",a:A.units,b:B.units,f:v=>num(v)+"個",better:1},
+    {k:"平均注文額（AOV）",a:A.aov,b:B.aov,f:yen,better:1},
+    {k:"1注文あたり点数",a:A.upo,b:B.upo,f:v=>v.toFixed(2)+"点",better:1},
+    {k:"平均商品単価",a:A.price,b:B.price,f:yen,better:1},
+    {k:"売れた商品の種類",a:A.skuCount,b:B.skuCount,f:v=>num(v)+"品",better:1},
+    {g:"顧客"},
+    {k:"新規顧客数",a:A.newCount,b:B.newCount,f:v=>num(v)+"人",better:1},
+    {k:"新規購入（初回注文）",a:A.firstOrders,b:B.firstOrders,f:v=>num(v)+"件",better:1},
+    {k:"リピート注文",a:A.repeatOrders,b:B.repeatOrders,f:v=>num(v)+"件",better:1},
+    {k:"リピート購入率",a:A.repRate,b:B.repRate,f:pct,better:1,pt:1},
+    {k:"新規のAOV",a:A.newAov,b:B.newAov,f:yen,better:1},
+    {g:"品質（少ないほど良い）"},
+    {k:"キャンセル件数",a:A.cancelCount,b:B.cancelCount,f:v=>num(v)+"件",better:-1},
+    {k:"キャンセル率",a:A.cancelRate,b:B.cancelRate,f:pct,better:-1,pt:1},
+    {k:"返品件数",a:A.returnCount,b:B.returnCount,f:v=>num(v)+"件",better:-1},
+    {k:"返金額",a:A.returnAmt,b:B.returnAmt,f:yen,better:-1},
+  ];
+  let h=`<table class="cmptbl"><thead><tr><th>指標</th><th>比較元</th><th>比較先</th><th>差</th><th>変化率</th></tr></thead><tbody>`;
+  rows.forEach(r=>{
+    if(r.g){ h+=`<tr class="secrow"><td colspan="5">${esc(r.g)}</td></tr>`; return; }
+    const raw=(r.b||0)-(r.a||0);
+    const diff=r.pt? ((raw>=0?"+":"−")+Math.abs(raw*100).toFixed(1)+"pt") : ((raw>=0?"+":"−")+r.f(Math.abs(raw)));
+    const pc=r.a? raw/Math.abs(r.a)*100 : null;
+    let cls="chg-flat"; if(raw!==0){ const good=(r.better>0)?(raw>0):(raw<0); cls=good?"chg-up":"chg-down"; }
+    h+=`<tr><td>${esc(r.k)}</td><td>${r.f(r.a||0)}</td><td class="mB">${r.f(r.b||0)}</td>
+      <td class="${cls}">${diff}</td><td class="${cls}">${pc==null?"—":((pc>=0?"+":"")+pc.toFixed(1)+"%")}</td></tr>`;
+  });
+  h+=`</tbody></table>`;
+  document.getElementById("fcTable").innerHTML=h;
+  document.getElementById("fcTblCard").style.display="block";
+}
+function fcRenderProducts(A,B){
+  const m={};
+  A.products.forEach(p=>{ m[p.name]=m[p.name]||{n:p.name,a:0,b:0,au:0,bu:0}; m[p.name].a=p.net; m[p.name].au=p.units; });
+  B.products.forEach(p=>{ m[p.name]=m[p.name]||{n:p.name,a:0,b:0,au:0,bu:0}; m[p.name].b=p.net; m[p.name].bu=p.units; });
+  const arr=Object.values(m).map(x=>({...x,d:x.b-x.a})).filter(x=>x.d!==0);
+  const down=arr.slice().sort((x,y)=>x.d-y.d).slice(0,12);
+  const up=arr.slice().sort((x,y)=>y.d-x.d).slice(0,12);
+  const tbl=(list,title,col)=>{
+    let h=`<h2 style="font-size:13.5px;margin:10px 0 6px;color:${col}">${title}</h2>
+      <table><thead><tr><th>商品</th><th>比較元</th><th>比較先</th><th>差額</th><th>販売数</th></tr></thead><tbody>`;
+    list.forEach(x=>{ h+=`<tr><td style="white-space:normal">${esc(x.n)}</td><td>${yen(x.a)}</td><td>${yen(x.b)}</td>
+      <td style="font-weight:700;color:${x.d<0?'#cc3b30':'#2f6f4f'}">${x.d>=0?"+":"−"}${yen(Math.abs(x.d))}</td>
+      <td>${num(x.au)}個 → ${num(x.bu)}個</td></tr>`; });
+    return h+`</tbody></table>`;
+  };
+  const lost=down.filter(x=>x.b===0).length;
+  document.getElementById("fcProducts").innerHTML=
+    tbl(down,"⬇ 売上を押し下げた商品 TOP12","#cc3b30")+tbl(up,"⬆ 売上を押し上げた商品 TOP12","#2f6f4f")
+    +`<div class="note" style="margin-top:12px">押し下げ上位のうち <b>${lost}品</b> は比較先で売上ゼロ（販売終了・在庫切れ・未出品の可能性）。まずここを確認すると回復の糸口になります。</div>`;
+  document.getElementById("fcProdCard").style.display="block";
+}
+{ const oa=fcMonthOptions();
+  const sa=document.getElementById("fcPresetA"), sb=document.getElementById("fcPresetB");
+  if(sa&&sb){
+    sa.innerHTML=oa.map(o=>`<option value="${o.v}">${esc(o.l)}</option>`).join("");
+    sb.innerHTML=oa.map(o=>`<option value="${o.v}">${esc(o.l)}</option>`).join("");
+    // 既定: 比較元=先々月相当（2つ前の月）, 比較先=先月
+    const mo=oa.filter(o=>o.v.indexOf("m:")===0);
+    if(mo.length>=3){ sa.value=mo[2].v; sb.value=mo[1].v; } else { sa.value="lastmonth"; sb.value="thismonth"; }
+    sa.addEventListener("change",()=>{ document.getElementById("fcCustomA").style.display=sa.value==="custom"?"inline":"none"; });
+    sb.addEventListener("change",()=>{ document.getElementById("fcCustomB").style.display=sb.value==="custom"?"inline":"none"; });
+  }
+  const rb=document.getElementById("fcRun"); if(rb) rb.addEventListener("click",fcRun);
+}
 
 /* ===== 仕入判断シミュレーター =====
    価格帯別の「N個以上売れた商品の割合」を実測値（直近365日・583商品）から定義。
