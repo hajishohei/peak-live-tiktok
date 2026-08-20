@@ -439,10 +439,28 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
           <span class="muted" id="liveAddMsg"></span>
         </div>
         <div class="muted" style="font-size:11px;margin-top:6px">※自動化する場合はHarboRの毎朝タスクから <code>POST /api/live_ingest</code> に <code>{date,hours,liveCount,key}</code> を送れば同じく反映されます（再デプロイ不要）。</div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid #e5e5e5">
+          <div class="muted" style="font-size:11.5px;margin-bottom:6px">＋ 視聴データ（TikTok Backstage「LIVE分析」の数値を転記・すべて任意項目・上の日付で保存）</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px">
+            <input type="number" id="liveAddImpressions" min="0" step="1" placeholder="インプレッション" style="width:120px">
+            <input type="number" id="liveAddViewers" min="0" step="1" placeholder="視聴者" style="width:100px">
+            <input type="number" id="liveAddPcu" min="0" step="1" placeholder="PCU(最大同接)" style="width:110px">
+            <input type="number" id="liveAddAcu" min="0" step="1" placeholder="ACU(平均同接)" style="width:110px">
+            <input type="number" id="liveAddAvgWatchSec" min="0" step="1" placeholder="平均視聴時間(秒)" style="width:130px">
+            <input type="number" id="liveAddCommenters" min="0" step="1" placeholder="コメント投稿者" style="width:110px">
+            <input type="number" id="liveAddNewFollowers" min="0" step="1" placeholder="新規フォロワー" style="width:110px">
+          </div>
+        </div>
       </details>
       <div class="chartbox"><canvas id="dailyChart"></canvas></div>
       <div id="dailyBody" style="margin-top:12px"></div>
       <div id="dailyDrill" style="margin-top:14px"></div>
+    </div>
+
+    <div class="card" id="viewMetricsCard" style="display:none">
+      <h2>👀 視聴データ（TikTok Backstage「LIVE分析」・手動入力）</h2>
+      <p class="desc">インプレッション・視聴者・PCU（最大同時接続）・ACU（平均同時接続）・視聴者1人あたり平均視聴時間・コメント投稿者・新規フォロワーは、TikTok API未対応のため上の「視聴データを手動で追加」フォームから入力した分のみ表示されます。PCU/ACU/平均視聴時間はデータがある日の単純平均、それ以外は合計です。</p>
+      <div id="viewMetricsBody"></div>
     </div>
   </div>
 
@@ -1042,8 +1060,9 @@ function renderProducts(){
       }
       const m=j.metrics||{};
       td.innerHTML=`<div style="padding:8px 6px;background:#faf7f0;border-radius:8px">
-        <div style="font-size:11px;color:#888;margin-bottom:4px">TikTok Shop 分析（${esc(R.since)}〜${esc(R.until)}）</div>
-        ${cell("GMV", m.gmv!=null?yen(m.gmv):"—")}${cell("注文数", m.orders!=null?num(m.orders):"—")}${cell("販売数", m.units!=null?num(m.units)+"個":"—")}${cell("CTR(クリック率)", m.ctr!=null?(m.ctr*100).toFixed(2)+"%":"—", "#2f6f4f")}
+        <div style="font-size:11px;color:#9a5b00;margin-bottom:4px">⚠ TikTok「分析」タブの数値（${esc(R.since)}〜${esc(R.until)}）— <b>GMVは自社売上とは定義が違います</b>（TikTok負担クーポンを含まず、キャンセルを含む）。粗利計算には使わないでください。参考はCTRのみ。</div>
+        ${cell("CTR(クリック率)", m.ctr!=null?(m.ctr*100).toFixed(2)+"%":"—", "#2f6f4f")}
+        <div class="muted" style="font-size:10.5px;margin-top:4px">※GMV・注文数・販売数はTikTok分析API独自の集計定義（TikTok負担クーポンの扱い等が異なる）のため表示していません。売上・粗利は下の「自社の注文データ」（注文管理ベース）を正としてください。</div>
       </div>`+ownHtml;
     }catch(e){ td.innerHTML=`<div class="err" style="margin:4px">通信エラー</div>`; }
   }));
@@ -1583,6 +1602,40 @@ function renderDaily(){
     drillDaily(tr.dataset.bkey);
   }));
   setDot("dotDaily","ok");
+  renderViewMetrics();
+}
+// 視聴データ（インプレッション/視聴者/PCU/ACU/平均視聴時間/コメント投稿者/新規フォロワー）。
+// TikTok APIでは取得できないため、手動入力フォームで入れた日だけ値が入る。
+const VIEW_SUM_FIELDS=["impressions","viewers","commenters","newFollowers"];
+const VIEW_AVG_FIELDS=["pcu","acu","avgWatchSec"];
+const VIEW_LABELS={impressions:"インプレッション",viewers:"視聴者",pcu:"PCU(最大同接)",acu:"ACU(平均同接)",avgWatchSec:"平均視聴時間",commenters:"コメント投稿者",newFollowers:"新規フォロワー"};
+function fmtWatchSec(v){ v=Math.round(v||0); const m=Math.floor(v/60), s=v%60; return m>0?(m+"分"+(s?s+"秒":"")):(s+"秒"); }
+function fmtViewVal(field,v){ if(v==null) return "—"; return field==="avgWatchSec"?fmtWatchSec(v):num(v); }
+function renderViewMetrics(){
+  const card=document.getElementById("viewMetricsCard"); if(!card) return;
+  const viewDays={}; ((DATA.trends&&DATA.trends.daysAll)||[]).forEach(d=>{ if(d.view) viewDays[d.key]=d.view; });
+  const range=DATA.range||{}; const since=range.since||"", until=range.until||"";
+  const inPeriod=(k)=>(!since||k>=since)&&(!until||k<=until);
+  const keys=Object.keys(viewDays).filter(inPeriod);
+  if(!keys.length){ card.style.display="none"; return; }
+  card.style.display="";
+  const groupKey=(dk)=>dailyUnit==="month"?dk.slice(0,7):(dailyUnit==="week"?weekStartJS(dk):dk);
+  const groups={};
+  keys.sort().forEach(dk=>{ const gk=groupKey(dk); (groups[gk]=groups[gk]||[]).push(dk); });
+  const fmtMD=(ds)=>{ const p=String(ds).split("-"); return p.length>=3?(+p[1])+"/"+(+p[2]):ds; };
+  const weekLabel=(k)=>fmtMD(k)+"〜"+fmtMD(addDays(k,6));
+  const rowLabel=(k)=>dailyUnit==="month"?k:(dailyUnit==="week"?weekLabel(k):k);
+  const rows=Object.keys(groups).sort().map(gk=>{
+    const dks=groups[gk]; const out={key:gk};
+    VIEW_SUM_FIELDS.forEach(f=>{ let s=0,has=false; dks.forEach(dk=>{ const v=viewDays[dk][f]; if(v!=null){has=true;s+=v;} }); out[f]=has?s:null; });
+    VIEW_AVG_FIELDS.forEach(f=>{ let s=0,c=0; dks.forEach(dk=>{ const v=viewDays[dk][f]; if(v!=null){s+=v;c++;} }); out[f]=c?Math.round(s/c):null; });
+    return out;
+  });
+  const cols=["impressions","viewers","pcu","acu","avgWatchSec","commenters","newFollowers"];
+  const hdrKey=dailyUnit==="month"?"月":(dailyUnit==="week"?"週（期間）":"日付");
+  let h=`<table><thead><tr><th>${esc(hdrKey)}</th>`+cols.map(c=>`<th>${esc(VIEW_LABELS[c])}</th>`).join("")+`</tr></thead><tbody>`;
+  rows.forEach(r=>{ h+=`<tr><td style="white-space:nowrap">${esc(rowLabel(r.key))}</td>`+cols.map(c=>`<td>${fmtViewVal(c,r[c])}</td>`).join("")+`</tr>`; });
+  document.getElementById("viewMetricsBody").innerHTML=h+"</tbody></table>";
 }
 function renderHourEfficiency(){
   const el=document.getElementById("hourEffBody"); if(!el) return;
@@ -2363,10 +2416,15 @@ document.getElementById("liveAddBtn").addEventListener("click",async()=>{
   const msg=document.getElementById("liveAddMsg");
   if(!date||!(hours>=0)){ msg.textContent="日付と配信時間(h)を入力してください"; return; }
   msg.textContent="送信中…";
+  const body={date,hours,liveCount:count,key};
+  const VIEW_IDS={impressions:"liveAddImpressions",viewers:"liveAddViewers",pcu:"liveAddPcu",acu:"liveAddAcu",avgWatchSec:"liveAddAvgWatchSec",commenters:"liveAddCommenters",newFollowers:"liveAddNewFollowers"};
+  Object.keys(VIEW_IDS).forEach(k=>{ const el=document.getElementById(VIEW_IDS[k]); const v=el&&el.value!==""?Number(el.value):null; if(v!=null&&isFinite(v)) body[k]=v; });
   try{
-    const r=await fetch("/api/live_ingest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date,hours,liveCount:count,key})});
+    const r=await fetch("/api/live_ingest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     const j=await r.json();
-    if(j.ok){ msg.textContent=`✓ ${date} を保存（計${j.totalDays}日）。再読込します…`; setTimeout(loadAll,700); }
+    if(j.ok){ msg.textContent=`✓ ${date} を保存（計${j.totalDays}日）。再読込します…`;
+      Object.values(VIEW_IDS).forEach(id=>{ const el=document.getElementById(id); if(el) el.value=""; });
+      setTimeout(loadAll,700); }
     else { msg.textContent="✗ "+(j.error||"失敗"); }
   }catch(e){ msg.textContent="✗ 通信エラー"; }
 });

@@ -69,6 +69,17 @@ export default async function handler(req, res) {
   const liveCount = Number(p.liveCount || 0) || 0;
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
   const rec = { sec, hms: ((h ? h + "時間" : "") + (m ? m + "分" : "") + (s ? s + "秒" : "")) || "0", liveCount };
+  // LIVEの視聴指標（Backstage「LIVE分析」から取得。省略可・送られた項目だけ保存する）
+  // impressions=インプレッション / viewers=視聴者 / pcu=最大同時接続 / acu=平均同時接続
+  // avgWatchSec=視聴者1人あたり平均視聴時間(秒) / commenters=コメント投稿者 / newFollowers=新規フォロワー
+  const NUMS = { impressions: "impressions", viewers: "viewers", pcu: "pcu", acu: "acu", commenters: "commenters", newFollowers: "newFollowers" };
+  for (const k of Object.keys(NUMS)) {
+    if (p[k] != null && p[k] !== "") { const n = Number(String(p[k]).replace(/[,\s]/g, "")); if (isFinite(n)) rec[k] = Math.round(n); }
+  }
+  // 平均視聴時間は 秒 / 分 / "1分23秒" のいずれでも受け取る
+  if (p.avgWatchSec != null && p.avgWatchSec !== "") { const n = Number(p.avgWatchSec); if (isFinite(n)) rec.avgWatchSec = Math.round(n); }
+  else if (p.avgWatchMin != null && p.avgWatchMin !== "") { const n = Number(p.avgWatchMin); if (isFinite(n)) rec.avgWatchSec = Math.round(n * 60); }
+  else if (p.avgWatch) rec.avgWatchSec = hmsToSec(p.avgWatch);
   try {
     const total = await saveLiveDaily(date, rec);
     res.status(200).json({ ok: true, date, rec, totalDays: total });

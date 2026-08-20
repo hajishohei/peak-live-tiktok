@@ -775,9 +775,16 @@ function aggregate(allOrders, ge, lt, refundByOrder) {
     byDow[t.dow].sales += amt; byDow[t.dow].orders += 1;
     if (isNewCust) { newSales += amt; newOrders += 1; newOrderAmts.push(amt); }
     if (isRepeatOrder) { repSales += amt; repOrders += 1; }
+    // 商品別の売上にも「TikTok負担クーポン」を按分して足す。
+    // li.sale_price は顧客の支払額ベース（TikTok負担クーポンが引かれた後）なので、
+    // そのまま合計すると自社の実売上より小さくなり、粗利が過小評価される。
+    // 注文単位のTT負担額を、明細の金額比で配分して正しい「自社売上」に揃える。
+    const _ttf = gross - orderAmount(o);                                   // この注文のTikTok負担クーポン
+    const _liSum = (o.line_items || []).reduce((a, x) => a + (Number(x.sale_price || 0) || 0), 0);
+    const _fac = (_ttf > 0 && _liSum > 0) ? (_liSum + _ttf) / _liSum : 1;  // 明細に掛ける補正係数
     for (const li of (o.line_items || [])) {
       units += 1; byDay[t.date].units += 1;
-      const name = prodName(li); const sp = Number(li.sale_price || 0) || 0;
+      const name = prodName(li); const sp = (Number(li.sale_price || 0) || 0) * _fac;
       const p = byProduct[name] || (byProduct[name] = { net: 0, units: 0, _orders: new Set(), _new: new Set(), _exist: new Set(), sellerSku: "" });
       if (!p.sellerSku && (li.seller_sku || li.sku_id)) p.sellerSku = String(li.seller_sku || li.sku_id);
       p.net += sp; p.units += 1; p._orders.add(o.id);
@@ -788,7 +795,7 @@ function aggregate(allOrders, ge, lt, refundByOrder) {
     }
   }
   const toArr = (m) => Object.entries(m).map(([name, v]) => ({
-    name, net: v.net, units: v.units, orders: v._orders.size,
+    name, net: Math.round(v.net), units: v.units, orders: v._orders.size,
     newBuyers: v._new ? v._new.size : 0, existBuyers: v._exist ? v._exist.size : 0,
     sellerSku: v.sellerSku || "",
   })).sort((a, b) => b.net - a.net);
@@ -910,36 +917,60 @@ function aggregate(allOrders, ge, lt, refundByOrder) {
   const lhDaily = { ...(LH.daily || {}), ...(RUNTIME_LIVE_DAILY || {}) }; // 静的＋Blob日次を合成（Blob優先）
   const lhMonthly = { ...(LH.monthly || {}), ...(RUNTIME_LIVE_MONTHLY || {}) }; // 静的＋ランキング自動取得（自動優先）
   const hasDaily = Object.keys(lhDaily).length > 0;
+  // ===== 視聴指標（Backstage「LIVE分析」を live_ingest で手動入力・任意項目） =====
+  // 合計が意味を持つ指標（インプレッション/視聴者/コメント投稿者/新規フォロワー）は合算、
+  // 瞬間値・平均値の指標（PCU/ACU/平均視聴時間）はデータがある日の単純平均にする。
+  const VIEW_SUM_FIELDS = ["impressions", "viewers", "commenters", "newFollowers"];
+  const VIEW_AVG_FIELDS = ["pcu", "acu", "avgWatchSec"];
+  function viewMetricsFor(dateKeys) {
+    const sum = {}, avgSum = {}, avgCnt = {};
+    let any = false;
+    for (const dk of dateKeys) {
+      const v = lhDaily[dk]; if (!v) continue;
+      for (const f of VIEW_SUM_FIELDS) if (v[f] != null) { any = true; sum[f] = (sum[f] || 0) + Number(v[f]); }
+      for (const f of VIEW_AVG_FIELDS) if (v[f] != null) { any = true; avgSum[f] = (avgSum[f] || 0) + Number(v[f]); avgCnt[f] = (avgCnt[f] || 0) + 1; }
+    }
+    if (!any) return null;
+    const out = { ...sum };
+    for (const f of VIEW_AVG_FIELDS) if (avgCnt[f]) out[f] = Math.round(avgSum[f] / avgCnt[f]);
+    return out;
+  }
   for (const d of daysAll) {
     const v = lhDaily[d.key];
     d.liveSec = v ? (v.sec || 0) : 0;
     d.liveCount = v ? (v.liveCount || 0) : 0;
     d.liveHasData = !!v;
+    d.view = viewMetricsFor([d.key]);
   }
   // 配信はあったが注文が無い日も daysAll に含める（日別/週別の配信時間合計が月別と一致するように）
   const dayKeySet = new Set(daysAll.map((d) => d.key));
   for (const dk of Object.keys(lhDaily)) {
     if (!dayKeySet.has(dk) && (lhDaily[dk].sec || 0) > 0) {
       const v = lhDaily[dk];
-      daysAll.push({ key: dk, sales: 0, orders: 0, units: 0, newBuyers: 0, repeatOrders: 0, liveSec: v.sec || 0, liveCount: v.liveCount || 0, liveHasData: true });
+      daysAll.push({ key: dk, sales: 0, orders: 0, units: 0, newBuyers: 0, repeatOrders: 0, liveSec: v.sec || 0, liveCount: v.liveCount || 0, liveHasData: true, view: viewMetricsFor([dk]) });
     }
   }
   daysAll.sort((a, b) => (a.key < b.key ? -1 : 1));
   for (const w of weekly) {
     let sec = 0, cnt = 0, days = 0, has = false; const ws = new Date(w.key + "T00:00:00Z");
+    const wkKeys = [];
     for (let i = 0; i < 7; i++) {
       const dk = new Date(ws.getTime() + i * 86400000).toISOString().slice(0, 10);
+      wkKeys.push(dk);
       const v = lhDaily[dk]; if (v) { has = true; sec += v.sec || 0; cnt += v.liveCount || 0; if ((v.sec || 0) > 0) days++; }
     }
     w.liveSec = sec; w.liveCount = cnt; w.liveDays = days; w.liveHasData = has;
+    w.view = viewMetricsFor(wkKeys);
   }
   for (const m of monthly) {
     let sec = 0, cnt = 0, days = 0, has = false;
+    const moKeys = [];
     for (const dk of Object.keys(lhDaily)) {
-      if (dk.slice(0, 7) === m.key) { const v = lhDaily[dk]; has = true; sec += v.sec || 0; cnt += v.liveCount || 0; if ((v.sec || 0) > 0) days++; }
+      if (dk.slice(0, 7) === m.key) { moKeys.push(dk); const v = lhDaily[dk]; has = true; sec += v.sec || 0; cnt += v.liveCount || 0; if ((v.sec || 0) > 0) days++; }
     }
     if (!has && lhMonthly[m.key]) { const mv = lhMonthly[m.key]; sec = mv.sec || 0; cnt = mv.liveCount || 0; m.liveDaysUnknown = true; }
     m.liveSec = sec; m.liveCount = cnt; m.liveDays = days; m.liveHasData = has || !!lhMonthly[m.key];
+    m.view = viewMetricsFor(moKeys);
   }
   const liveHoursMeta = {
     creator: LH.creator || "", displayName: LH.displayName || "", updated: LH.updated || null,

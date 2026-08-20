@@ -32,6 +32,42 @@ export default async function handler(req, res) {
   const id = String(q.id || "").trim();
   const since = String(q.since || "").trim();
   const until = String(q.until || "").trim();
+
+  // ===== 診断: LIVE分析APIがこのショップで使えるか調べる（読み取り専用・固定の候補のみ） =====
+  // GET /api/product_analytics?probe=live&since=YYYY-MM-DD&until=YYYY-MM-DD
+  if (String(q.probe || "") === "live") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(since) || !/^\d{4}-\d{2}-\d{2}$/.test(until)) {
+      res.status(200).json({ ok: false, error: "since / until (YYYY-MM-DD) が必要です" }); return;
+    }
+    const CANDIDATES = [
+      "/analytics/202508/shop_lives/overview_performance",
+      "/analytics/202508/shop_lives/performance",
+      "/analytics/202409/shop_lives/performance",
+      "/analytics/202406/shop_lives/performance",
+      "/analytics/202405/shop_lives/performance",
+      "/analytics/202508/shop_performance",
+      "/analytics/202405/shop_performance",
+    ];
+    try {
+      const shop = await getShop(env);
+      const out = [];
+      for (const path of CANDIDATES) {
+        try {
+          const j = await callTT({ path, method: "GET", query: { start_date_ge: since, end_date_lt: addDay(until) }, env, shopCipher: shop.cipher });
+          const d = j && j.data;
+          out.push({
+            path, code: j && j.code, message: String((j && j.message) || "").slice(0, 120),
+            ok: j && j.code === 0,
+            keys: d && typeof d === "object" ? Object.keys(d).slice(0, 30) : null,
+            // 中身の形を掴むため、先頭だけ浅くサンプリング
+            sample: d ? JSON.stringify(d).slice(0, 900) : null,
+          });
+        } catch (e) { out.push({ path, error: String((e && e.message) || e).slice(0, 120) }); }
+      }
+      res.status(200).json({ ok: true, since, until, results: out });
+    } catch (e) { res.status(200).json({ ok: false, error: String((e && e.message) || e) }); }
+    return;
+  }
   if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(since) || !/^\d{4}-\d{2}-\d{2}$/.test(until)) {
     res.status(200).json({ ok: false, error: "id, since(YYYY-MM-DD), until(YYYY-MM-DD) が必要です" }); return;
   }
