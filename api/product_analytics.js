@@ -35,34 +35,39 @@ export default async function handler(req, res) {
 
   // ===== 診断: LIVE分析APIがこのショップで使えるか調べる（読み取り専用・固定の候補のみ） =====
   // GET /api/product_analytics?probe=live&since=YYYY-MM-DD&until=YYYY-MM-DD
+  // 公式ドキュメント確認済み: /analytics/202508/shop_lives/performance の interaction_performance に
+  // acu/pcu/viewers/views/avg_viewing_duration/comments/new_followers 等が入る（Shopスコープ・Creator認可不要）。
+  // 前回は内部エラー(36009003)だったため、日付範囲・任意パラメータを変えた複数パターンで再検証する。
   if (String(q.probe || "") === "live") {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(since) || !/^\d{4}-\d{2}-\d{2}$/.test(until)) {
       res.status(200).json({ ok: false, error: "since / until (YYYY-MM-DD) が必要です" }); return;
     }
-    const CANDIDATES = [
-      "/analytics/202508/shop_lives/overview_performance",
-      "/analytics/202508/shop_lives/performance",
-      "/analytics/202409/shop_lives/performance",
-      "/analytics/202406/shop_lives/performance",
-      "/analytics/202405/shop_lives/performance",
-      "/analytics/202508/shop_performance",
-      "/analytics/202405/shop_performance",
+    const addDayN = (d, n) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+    const wideEnd = addDay(until);
+    const narrowStart = addDayN(until, -6); // 直近7日
+    const VARIANTS = [
+      { label: "overview: 直近7日・最小パラメータ", path: "/analytics/202508/shop_lives/overview_performance", query: { start_date_ge: narrowStart, end_date_lt: wideEnd } },
+      { label: "overview: 直近7日・granularity/currency/account_type付き", path: "/analytics/202508/shop_lives/overview_performance", query: { start_date_ge: narrowStart, end_date_lt: wideEnd, granularity: "1D", currency: "LOCAL", account_type: "ALL", with_comparison: "false" } },
+      { label: "list: 指定期間(元のsince〜until)・最小パラメータ", path: "/analytics/202508/shop_lives/performance", query: { start_date_ge: since, end_date_lt: wideEnd } },
+      { label: "list: 直近7日・最小パラメータ", path: "/analytics/202508/shop_lives/performance", query: { start_date_ge: narrowStart, end_date_lt: wideEnd } },
+      { label: "list: 直近7日・page_size/sort/currency/account_type付き", path: "/analytics/202508/shop_lives/performance", query: { start_date_ge: narrowStart, end_date_lt: wideEnd, page_size: "30", sort_field: "gmv", sort_order: "DESC", currency: "LOCAL", account_type: "ALL" } },
+      { label: "list: 直近2日・最小パラメータ", path: "/analytics/202508/shop_lives/performance", query: { start_date_ge: addDayN(until, -1), end_date_lt: wideEnd } },
     ];
     try {
       const shop = await getShop(env);
       const out = [];
-      for (const path of CANDIDATES) {
+      for (const v of VARIANTS) {
         try {
-          const j = await callTT({ path, method: "GET", query: { start_date_ge: since, end_date_lt: addDay(until) }, env, shopCipher: shop.cipher });
+          const j = await callTT({ path: v.path, method: "GET", query: v.query, env, shopCipher: shop.cipher });
           const d = j && j.data;
           out.push({
-            path, code: j && j.code, message: String((j && j.message) || "").slice(0, 120),
+            label: v.label, path: v.path, query: v.query,
+            code: j && j.code, message: String((j && j.message) || "").slice(0, 160),
             ok: j && j.code === 0,
             keys: d && typeof d === "object" ? Object.keys(d).slice(0, 30) : null,
-            // 中身の形を掴むため、先頭だけ浅くサンプリング
-            sample: d ? JSON.stringify(d).slice(0, 900) : null,
+            sample: d ? JSON.stringify(d).slice(0, 1400) : null,
           });
-        } catch (e) { out.push({ path, error: String((e && e.message) || e).slice(0, 120) }); }
+        } catch (e) { out.push({ label: v.label, path: v.path, query: v.query, error: String((e && e.message) || e).slice(0, 160) }); }
       }
       res.status(200).json({ ok: true, since, until, results: out });
     } catch (e) { res.status(200).json({ ok: false, error: String((e && e.message) || e) }); }
