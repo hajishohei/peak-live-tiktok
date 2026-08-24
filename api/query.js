@@ -775,16 +775,19 @@ function aggregate(allOrders, ge, lt, refundByOrder) {
     byDow[t.dow].sales += amt; byDow[t.dow].orders += 1;
     if (isNewCust) { newSales += amt; newOrders += 1; newOrderAmts.push(amt); }
     if (isRepeatOrder) { repSales += amt; repOrders += 1; }
-    // 商品別の売上にも「TikTok負担クーポン」を按分して足す。
-    // li.sale_price は顧客の支払額ベース（TikTok負担クーポンが引かれた後）なので、
-    // そのまま合計すると自社の実売上より小さくなり、粗利が過小評価される。
-    // 注文単位のTT負担額を、明細の金額比で配分して正しい「自社売上」に揃える。
+    // 商品別の売上にも「TikTok負担クーポン」を按分して足し、「返金済み」も按分して差し引く。
+    // li.sale_price は顧客の支払額ベース（TikTok負担クーポンが引かれた後・返金前）なので、
+    // そのまま合計すると①自社の実売上より小さくなり粗利が過小評価される（クーポン分）、
+    // ②返金済みの分も売上に残ってしまい粗利が過大評価される（返金分）。
+    // 注文単位のTT負担額・返金額を、明細の（返金前の）金額比で配分して amt(=gross-rf) に一致させる。
     const _ttf = gross - orderAmount(o);                                   // この注文のTikTok負担クーポン
     const _liSum = (o.line_items || []).reduce((a, x) => a + (Number(x.sale_price || 0) || 0), 0);
-    const _fac = (_ttf > 0 && _liSum > 0) ? (_liSum + _ttf) / _liSum : 1;  // 明細に掛ける補正係数
+    const _fac = (_ttf > 0 && _liSum > 0) ? (_liSum + _ttf) / _liSum : 1;  // 明細に掛ける補正係数（クーポン按分）
     for (const li of (o.line_items || [])) {
       units += 1; byDay[t.date].units += 1;
-      const name = prodName(li); const sp = (Number(li.sale_price || 0) || 0) * _fac;
+      const name = prodName(li); const _rawSp = Number(li.sale_price || 0) || 0;
+      const _rfShare = (rf > 0 && _liSum > 0) ? (_rawSp / _liSum) * rf : 0; // この明細に按分した返金額
+      const sp = _rawSp * _fac - _rfShare;
       const p = byProduct[name] || (byProduct[name] = { net: 0, units: 0, _orders: new Set(), _new: new Set(), _exist: new Set(), sellerSku: "" });
       if (!p.sellerSku && (li.seller_sku || li.sku_id)) p.sellerSku = String(li.seller_sku || li.sku_id);
       p.net += sp; p.units += 1; p._orders.add(o.id);
