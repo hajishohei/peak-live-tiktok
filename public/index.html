@@ -462,6 +462,22 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
       <p class="desc">インプレッション・視聴者・PCU（最大同時接続）・ACU（平均同時接続）・視聴者1人あたり平均視聴時間・コメント投稿者・新規フォロワーは、TikTok API未対応のため上の「視聴データを手動で追加」フォームから入力した分のみ表示されます。PCU/ACU/平均視聴時間はデータがある日の単純平均、それ以外は合計です。</p>
       <div id="viewMetricsBody"></div>
     </div>
+
+    <div class="card" id="liveProbeCard">
+      <h2>🔎 LIVE商品別データ 動作確認（開発用）</h2>
+      <p class="desc">その日のLIVEで「どの商品が紹介されたか・何分ピン留めされていたか」をTikTokのAPIから取得できるかを直接試すツールです。日付を選んで「実行」を押すと、結果がそのまま下に表示されます（再デプロイ・URL手打ち不要）。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <input type="date" id="liveProbeDate">
+        <select id="liveProbeSlot">
+          <option value="7D" selected>直近7日から検索</option>
+          <option value="1D">その日のみ</option>
+          <option value="30D">直近30日から検索</option>
+        </select>
+        <button class="primary" id="liveProbeRun">実行</button>
+        <span class="muted" id="liveProbeMsg"></span>
+      </div>
+      <div id="liveProbeResult"></div>
+    </div>
   </div>
 
   <!-- COMPARE -->
@@ -674,6 +690,24 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
         <p class="desc" style="margin:0 0 8px">原価は <b>推定原価×販売数</b>。ブランド名は商品名からの自動推定のため目安です。発注タイミング（在庫増加）連動は履歴記録の開始後に反映します。</p>
         <div id="brandBody"></div>
       </div>
+    </div>
+    <div class="card">
+      <h2>🚚 送料コスト（エンコントロ請求書）</h2>
+      <p class="desc">エンコントロの請求書は月合計しか書かれていない前提で、<b>管理費（固定費）</b>・<b>発送手数料</b>・<b>配送料</b>（ともに変動費）を月ごとに入力してください。変動費2つはその月の<b>TikTok有効注文数</b>で割って1件あたり単価にし、選択期間内の注文数ぶんを計上します。管理費は月額をその月の日数で日割りし、選択期間がかかっている日数ぶんを計上します。算出結果は上の「粗利益（推定）」から自動で差し引かれます。</p>
+      <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:0 0 12px">
+        <div class="kpi"><div class="label">選択期間の送料合計</div><div class="val" id="shipTotal" style="color:#cc3b30">—</div><div class="delta" id="shipTotalD">粗利から差引済</div></div>
+        <div class="kpi"><div class="label">内訳: 管理費（日割り）</div><div class="val" id="shipMgmt">—</div></div>
+        <div class="kpi"><div class="label">内訳: 発送手数料+配送料（変動）</div><div class="val" id="shipVar">—</div></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:10px;background:#faf9f7;border:1px solid #eceae6;border-radius:10px;padding:10px 12px">
+        <div style="display:flex;flex-direction:column;gap:3px"><label class="sub">対象月</label><input type="month" id="shipMonth"></div>
+        <div style="display:flex;flex-direction:column;gap:3px"><label class="sub">管理費(円・固定費)</label><input type="number" id="shipMgmtFee" min="0" step="1" style="width:120px"></div>
+        <div style="display:flex;flex-direction:column;gap:3px"><label class="sub">発送手数料(円・月合計)</label><input type="number" id="shipHandleFee" min="0" step="1" style="width:130px"></div>
+        <div style="display:flex;flex-direction:column;gap:3px"><label class="sub">配送料(円・月合計)</label><input type="number" id="shipDeliveryFee" min="0" step="1" style="width:120px"></div>
+        <button class="primary" id="shipSaveBtn">保存</button>
+        <span class="muted" id="shipMsg"></span>
+      </div>
+      <div id="shipMonthlyBody"></div>
     </div>
     <div class="card">
       <h2>🏷️ ブランド別 商品エクスプローラー</h2>
@@ -947,7 +981,7 @@ function renderOverview(){
   document.getElementById("kpiNewRep").textContent=c.available?`${num(c.firstOrders)} / ${num(c.repeatOrders)}`:"—";
   const pr=DATA.profit||{}; const cm=DATA.costMeta||{};
   document.getElementById("kpiGP").textContent=yen(pr.grossProfit||0);
-  document.getElementById("kpiGPd").textContent=`純売上 ${yk(pr.revenue||0)} − 原価 ${yk(pr.cogs||0)}`;
+  document.getElementById("kpiGPd").textContent=pr.shipping?`純売上 ${yk(pr.revenue||0)} − 原価 ${yk(pr.cogs||0)} − 送料 ${yk(pr.shipping.total||0)}`:`純売上 ${yk(pr.revenue||0)} − 原価 ${yk(pr.cogs||0)}`;
   document.getElementById("kpiGM").textContent=pct(pr.grossMargin||0);
   document.getElementById("kpiCOGS").textContent=yen(pr.cogs||0);
   document.getElementById("kpiMatch").textContent=cm.totalProducts?pct((cm.matchedProducts||0)/cm.totalProducts):"—";
@@ -1247,7 +1281,7 @@ function renderStock(){
   const pr=DATA.profit||{}; const inv=DATA.inventory||[]; const cm=DATA.costMeta||{};
   document.getElementById("sGP").textContent=yen(pr.grossProfit||0);
   document.getElementById("sGM").textContent=pct(pr.grossMargin||0);
-  renderProfitSplit(); renderPurchases(); renderBrandExplorer();
+  renderProfitSplit(); renderPurchases(); renderBrandExplorer(); renderShipping();
   renderTTStock();
   // inventory table
   const q=(document.getElementById("invSearch").value||"").trim().toLowerCase();
@@ -1295,6 +1329,36 @@ function renderProfitSplit(){
   }
   const bj=document.getElementById("brandJump");
   if(bj&&!bj._wired){ bj._wired=true; bj.addEventListener("click",()=>{ const t=document.getElementById("brandBody"); if(t){ try{t.scrollIntoView({behavior:"smooth",block:"center"});}catch(e){t.scrollIntoView();} t.style.transition="background .2s"; t.style.background="#fff7e6"; setTimeout(()=>{t.style.background="";},900); } }); }
+}
+
+function renderShipping(){
+  const sh=(DATA.profit||{}).shipping||null;
+  const totalEl=document.getElementById("shipTotal"), mgmtEl=document.getElementById("shipMgmt"), varEl=document.getElementById("shipVar"), dEl=document.getElementById("shipTotalD");
+  if(!sh){
+    totalEl.textContent="¥0"; mgmtEl.textContent="¥0"; varEl.textContent="¥0";
+    dEl.textContent="この期間に対応する月の請求書データが未入力です";
+  } else {
+    totalEl.textContent=yen(sh.total||0); mgmtEl.textContent=yen(sh.management||0); varEl.textContent=yen(sh.variable||0);
+    dEl.textContent="粗利から差引済（"+(sh.detail||[]).map(d=>d.month).join("・")+"）";
+  }
+  const monthly=DATA.shippingMonthly||{};
+  const months=Object.keys(monthly).sort((a,b)=>b<a?-1:1);
+  const body=document.getElementById("shipMonthlyBody");
+  const detailByMonth={}; ((sh&&sh.detail)||[]).forEach(d=>{ detailByMonth[d.month]=d; });
+  if(!months.length){ body.innerHTML=`<div class="muted">まだ月次データがありません。上のフォームから入力してください。</div>`; return; }
+  let h=`<table><thead><tr><th>月</th><th>管理費</th><th>発送手数料</th><th>配送料</th><th>その月のTikTok注文数</th><th>変動費 単価/件</th><th></th></tr></thead><tbody>`;
+  months.forEach(mk=>{
+    const v=monthly[mk]||{}; const d=detailByMonth[mk];
+    h+=`<tr><td>${esc(mk)}</td><td>${yen(v.managementFee||0)}</td><td>${yen(v.shippingFee||0)}</td><td>${yen(v.deliveryFee||0)}</td>`
+      +`<td>${d?num(d.totalOrdersM)+"件":"—"}</td><td>${d?yen(d.perOrderRate):"—"}</td>`
+      +`<td><button class="mini" data-shipdel="${esc(mk)}">削除</button></td></tr>`;
+  });
+  body.innerHTML=h+`</tbody></table>`;
+  body.querySelectorAll("[data-shipdel]").forEach(b=>b.addEventListener("click",async()=>{
+    const mk=b.dataset.shipdel;
+    if(!confirm(`${mk} の送料データを削除しますか？`)) return;
+    try{ await fetch(`/api/shipping_cost?delete=1&month=${encodeURIComponent(mk)}`); loadAll(); }catch(e){}
+  }));
 }
 
 function renderPurchases(){
@@ -2409,6 +2473,22 @@ document.getElementById("shAdd").addEventListener("click",addShift);
 (function(){ const sd=document.getElementById("shDate"); if(sd&&!sd.value){ sd.value=new Date(Date.now()+9*3600*1000).toISOString().slice(0,10); } })();
 document.getElementById("ovrSave").addEventListener("click",()=>{ const r=parseInt(document.getElementById("rateInput").value,10); if(r>=5&&r<=95) saveRate(r/100); loadAll(); });
 document.getElementById("ovrReset").addEventListener("click",()=>{ if(confirm("入力した原価・SD紐付け・係数をすべてリセットしますか？")){ localStorage.removeItem(COST_OVR_KEY); localStorage.removeItem(COST_MANUAL_KEY); localStorage.removeItem(COST_RATE_KEY); loadAll(); } });
+(function(){ const m=document.getElementById("shipMonth"); if(m&&!m.value){ m.value=new Date(Date.now()+9*3600*1000).toISOString().slice(0,7); } })();
+document.getElementById("shipSaveBtn").addEventListener("click",async()=>{
+  const month=document.getElementById("shipMonth").value;
+  const managementFee=document.getElementById("shipMgmtFee").value;
+  const shippingFee=document.getElementById("shipHandleFee").value;
+  const deliveryFee=document.getElementById("shipDeliveryFee").value;
+  const msg=document.getElementById("shipMsg");
+  if(!/^\d{4}-\d{2}$/.test(month||"")){ msg.textContent="対象月を選んでください"; return; }
+  msg.textContent="保存中…";
+  try{
+    const r=await fetch("/api/shipping_cost",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({month,managementFee,shippingFee,deliveryFee})});
+    const j=await r.json();
+    if(j.ok){ msg.textContent=`✓ ${month} を保存しました。再読込します…`; setTimeout(loadAll,500); }
+    else { msg.textContent="✗ "+(j.error||"失敗"); }
+  }catch(e){ msg.textContent="✗ 通信エラー"; }
+});
 document.querySelectorAll('#timeMetric button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#timeMetric button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); timeMetric=b.dataset.m; if(DATA)renderTiming(); }));
 document.querySelectorAll('#dailyUnit button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#dailyUnit button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); dailyUnit=b.dataset.u; if(DATA)renderDaily(); }));
 document.getElementById("liveAddBtn").addEventListener("click",async()=>{
@@ -2426,6 +2506,39 @@ document.getElementById("liveAddBtn").addEventListener("click",async()=>{
       Object.values(VIEW_IDS).forEach(id=>{ const el=document.getElementById(id); if(el) el.value=""; });
       setTimeout(loadAll,700); }
     else { msg.textContent="✗ "+(j.error||"失敗"); }
+  }catch(e){ msg.textContent="✗ 通信エラー"; }
+});
+
+(function(){ const d=document.getElementById("liveProbeDate"); if(d&&!d.value){ d.value=new Date(Date.now()+9*3600*1000-24*3600*1000).toISOString().slice(0,10); } })();
+function renderLiveProbeStep(title,s){
+  if(!s) return `<div class="hl" style="margin-bottom:8px"><div class="t">${esc(title)}</div><div class="s muted">未実行（前の手順が失敗したため）</div></div>`;
+  if(s.error) return `<div class="hl" style="margin-bottom:8px"><div class="t">${esc(title)}</div><div class="s" style="color:#cc3b30">エラー: ${esc(s.error)}</div></div>`;
+  const okMark = s.ok ? '<span style="color:#2f9e5f">✅成功</span>' : '<span style="color:#cc3b30">❌失敗</span>';
+  return `<div class="hl" style="margin-bottom:8px">
+    <div class="t">${esc(title)} — code:${esc(String(s.code))} ${okMark}</div>
+    <div class="s">${esc(s.message||"")}</div>
+    ${s.keys?`<div class="s">返ってきたキー: ${esc((s.keys||[]).join(", ")||"(なし)")}</div>`:""}
+    ${s.foundLiveId!==undefined?`<div class="s">見つかったlive_id: ${s.foundLiveId?esc(s.foundLiveId):"なし"}</div>`:""}
+    <details style="margin-top:4px"><summary style="cursor:pointer;font-size:11.5px;color:#5a6b9a">生データを見る</summary><pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;background:#faf9f7;padding:8px;border-radius:6px;margin-top:4px">${esc(s.sample||"(なし)")}</pre></details>
+  </div>`;
+}
+document.getElementById("liveProbeRun").addEventListener("click",async()=>{
+  const date=document.getElementById("liveProbeDate").value;
+  const slot=document.getElementById("liveProbeSlot").value;
+  const msg=document.getElementById("liveProbeMsg");
+  const out=document.getElementById("liveProbeResult");
+  if(!date){ msg.textContent="日付を選んでください"; return; }
+  msg.textContent="取得中…（10秒ほどかかることがあります）"; out.innerHTML="";
+  try{
+    const r=await fetch(`/api/product_analytics?probe=live2&date=${encodeURIComponent(date)}&time_slot=${encodeURIComponent(slot)}`);
+    const j=await r.json();
+    if(!j.ok){ msg.textContent="✗ "+(j.error||"取得失敗"); out.innerHTML=""; return; }
+    msg.textContent="✓ 取得完了";
+    out.innerHTML =
+      `<div class="note" style="margin-bottom:10px">対象日: ${esc(j.date)}（検索範囲: ${esc(j.timeSlot)}） / 見つかったLIVE ID: ${j.liveId?esc(j.liveId):"見つかりませんでした（この日のLIVEが検索範囲内に無いか、APIが対応していない可能性）"}</div>` +
+      renderLiveProbeStep("① ベストセラーLIVE一覧からlive_idを取得",j.step1_bestselling) +
+      renderLiveProbeStep("② LIVE分単位パフォーマンス（ピン留め時間の候補データ）",j.step2_minute_performance) +
+      renderLiveProbeStep("③ LIVE商品別パフォーマンス一覧",j.step3_products_performance);
   }catch(e){ msg.textContent="✗ 通信エラー"; }
 });
 

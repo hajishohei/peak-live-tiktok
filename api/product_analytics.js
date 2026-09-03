@@ -73,6 +73,88 @@ export default async function handler(req, res) {
     } catch (e) { res.status(200).json({ ok: false, error: String((e && e.message) || e) }); }
     return;
   }
+
+  // ===== 診断2: LIVE商品別ピン留め時間機能のための道筋を調べる（読み取り専用） =====
+  // GET /api/product_analytics?probe=live2&date=YYYY-MM-DD&time_slot=7D
+  // 手順:
+  //  1) Get Bestselling LIVE Sessions (/analytics/202511/lives/bestselling) で対象日周辺のlive_idを列挙
+  //     （Get Shop LIVE Performance List は内部エラーで使用不可と確認済みのため、代替ルートとして試す）
+  //  2) 得られた最初のlive_idで Get Shop LIVE Minute Performance
+  //     (/analytics/202510/shop_lives/{live_id}/performance_per_minutes) を試す
+  //  3) 同じlive_idで Get Shop LIVE Products Performance List
+  //     (/analytics/202512/shop/{live_id}/products_performance) を試す
+  // レスポンス例がドキュメントに掲載されていないため、実データで構造を確認する目的。
+  if (String(q.probe || "") === "live2") {
+    const date = String(q.date || until || since || "").trim();
+    const timeSlot = String(q.time_slot || "7D").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      res.status(200).json({ ok: false, error: "date (YYYY-MM-DD) が必要です" }); return;
+    }
+    const out = { step1_bestselling: null, step2_minute_performance: null, step3_products_performance: null };
+    try {
+      const shop = await getShop(env);
+      // Step1: bestselling lives
+      let liveId = null;
+      try {
+        const j1 = await callTT({
+          path: "/analytics/202511/lives/bestselling", method: "GET",
+          query: { date, time_slot: timeSlot, currency: "LOCAL" }, env, shopCipher: shop.cipher,
+        });
+        const d1 = j1 && j1.data;
+        out.step1_bestselling = {
+          code: j1 && j1.code, message: String((j1 && j1.message) || "").slice(0, 200),
+          ok: j1 && j1.code === 0,
+          keys: d1 && typeof d1 === "object" ? Object.keys(d1).slice(0, 30) : null,
+          sample: d1 ? JSON.stringify(d1).slice(0, 3000) : null,
+        };
+        // live_idらしきフィールドを再帰的に探す
+        (function findLiveId(o, depth) {
+          if (liveId || !o || typeof o !== "object" || depth > 4) return;
+          for (const k of Object.keys(o)) {
+            const v = o[k];
+            if (!liveId && /^live_id$|^room_id$|^liveId$/i.test(k) && v) { liveId = String(v); return; }
+            if (v && typeof v === "object") findLiveId(v, depth + 1);
+          }
+        })(d1, 0);
+        out.step1_bestselling.foundLiveId = liveId;
+      } catch (e) { out.step1_bestselling = { error: String((e && e.message) || e).slice(0, 200) }; }
+
+      // Step2/3: liveIdが取れた場合のみ試す
+      if (liveId) {
+        try {
+          const j2 = await callTT({
+            path: `/analytics/202510/shop_lives/${liveId}/performance_per_minutes`, method: "GET",
+            query: { currency: "LOCAL" }, env, shopCipher: shop.cipher,
+          });
+          const d2 = j2 && j2.data;
+          out.step2_minute_performance = {
+            code: j2 && j2.code, message: String((j2 && j2.message) || "").slice(0, 200),
+            ok: j2 && j2.code === 0,
+            keys: d2 && typeof d2 === "object" ? Object.keys(d2).slice(0, 30) : null,
+            sample: d2 ? JSON.stringify(d2).slice(0, 3000) : null,
+          };
+        } catch (e) { out.step2_minute_performance = { error: String((e && e.message) || e).slice(0, 200) }; }
+
+        try {
+          const j3 = await callTT({
+            path: `/analytics/202512/shop/${liveId}/products_performance`, method: "GET",
+            query: { currency: "LOCAL", page_size: "50" }, env, shopCipher: shop.cipher,
+          });
+          const d3 = j3 && j3.data;
+          out.step3_products_performance = {
+            code: j3 && j3.code, message: String((j3 && j3.message) || "").slice(0, 200),
+            ok: j3 && j3.code === 0,
+            keys: d3 && typeof d3 === "object" ? Object.keys(d3).slice(0, 30) : null,
+            sample: d3 ? JSON.stringify(d3).slice(0, 3000) : null,
+          };
+        } catch (e) { out.step3_products_performance = { error: String((e && e.message) || e).slice(0, 200) }; }
+      }
+
+      res.status(200).json({ ok: true, date, timeSlot, liveId, ...out });
+    } catch (e) { res.status(200).json({ ok: false, error: String((e && e.message) || e) }); }
+    return;
+  }
+
   if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(since) || !/^\d{4}-\d{2}-\d{2}$/.test(until)) {
     res.status(200).json({ ok: false, error: "id, since(YYYY-MM-DD), until(YYYY-MM-DD) が必要です" }); return;
   }

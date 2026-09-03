@@ -134,7 +134,7 @@ function matchBase(name, overrides, sku) {
   if (bb && bj >= 0.5) return { base: bb, source: "sd-auto", score: bj };
   return null;
 }
-export { matchBase, normName, getCostIndex, applyCosts, applyTTInventory, baseFromSku, callTT, isExpiredAuth, buildAndSaveSnapshot, getShop, getAllProducts, saveLiveDaily, loadLiveDaily, saveLiveDailyBulk };
+export { matchBase, normName, getCostIndex, applyCosts, applyTTInventory, baseFromSku, callTT, isExpiredAuth, buildAndSaveSnapshot, getShop, getAllProducts, saveLiveDaily, loadLiveDaily, saveLiveDailyBulk, loadShippingMonthly, saveShippingMonthly, deleteShippingMonthly };
 function manualCostFor(name, manualCosts) {
   if (!manualCosts) return null;
   const v = manualCosts[name];
@@ -151,7 +151,12 @@ function unitCostFor(p, overrides, manualCosts, rate) {
     const m = idx.byBase.get(mt.base);
     return { unit: m.cost, source: mt.source, score: mt.score, base: m.base, sdName: m.name, vendor: m.vendor };
   }
-  const avg = p.units ? p.net / p.units : 0;
+  // 推定原価は「実売価格」ではなく「上代（値引き前）」を基準にする。
+  // 自社クーポン等の値引きで実売価格が下がっても原価は変わらないはずなので。
+  // 上代データが無い（listNetが0＝このフィールド追加より前に取り込んだ過去分など）場合のみ、
+  // 従来通り実売価格(net)にフォールバックする。
+  const base = (p.listNet && p.listNet > 0) ? p.listNet : p.net;
+  const avg = p.units ? base / p.units : 0;
   return { unit: Math.round(avg * rate), source: "estimate", score: 0, base: null, sdName: "", vendor: "" };
 }
 
@@ -383,7 +388,7 @@ function peekRefundCache(shopCipher) {
 // 過去注文を1ファイルに「冷凍保存」し、毎回は直近のみAPI取得して合体する。
 const LOOKBACK_DAYS = 400;          // スナップショット未設定時のフル取得日数
 const COLD_INIT_DAYS = 90;          // H-1: スナップショット不在の初回は直近この日数だけ取得（フル400日はHobbyでタイムアウトするため）。全期間は /api/snapshot（履歴を更新）で後追い構築。
-const SNAPSHOT_SCHEMA = 2;          // H-5: trimOrderの構造版数（tt_funded/user_id/buyer_name を含む=2）。古い版数のスナップショットは再構築を促す。
+const SNAPSHOT_SCHEMA = 3;          // H-5: trimOrderの構造版数（tt_funded/user_id/buyer_name を含む=2、list_total(上代)を含む=3）。古い版数のスナップショットは再構築を促す。
 const SNAPSHOT_OVERLAP_DAYS = 1;    // 直近の状態変化(キャンセル等)を取りこぼさない重複日数
 const REFRESH_MIN_DAYS = 45;        // 直近この日数は毎回再取得し、最新項目(TT負担クーポン等)で上書き
 const ROLL_THRESHOLD_SEC = 6 * 3600; // 基準日がこれ以上前なら自動ロール（前進）して保存
@@ -412,7 +417,7 @@ function trimOrder(o) {
     id: o.id,
     create_time: o.create_time,
     status: o.status || o.order_status || "",
-    payment: { total_amount: orderAmount(o), currency: (o.payment && o.payment.currency) || "JPY", tt_funded: ttFundedDiscount(o) },
+    payment: { total_amount: orderAmount(o), currency: (o.payment && o.payment.currency) || "JPY", tt_funded: ttFundedDiscount(o), list_total: originalProductPrice(o) },
     user_id: o.user_id || o.buyer_email || "",
     buyer_name: recipientName(o),
     line_items: (o.line_items || []).map((li) => ({
@@ -489,6 +494,103 @@ async function saveLiveDailyBulk(recMap, replaceMonth) {
   await put(LIVE_DAILY_PATH, JSON.stringify({ updated: Date.now(), daily }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
   liveDailyMem = { daily, _ts: Date.now() };
   return Object.keys(daily).length;
+}
+
+// ===== 送料コスト（エンコントロ請求書・月次手入力） =====
+// 請求書には月合計しか書かれていない前提: 管理費(固定費)・発送手数料(変動費)・配送料(変動費)。
+// 変動費は「その月のTikTok有効注文数」で割って1件あたり単価にし、選択期間内の注文数ぶんを計上する。
+// 固定費(管理費)は月額をその月の日数で割り、選択期間がその月にかかっている日数ぶんを日割り計上する。
+const SHIP_PATH = "tts-shipping-monthly.json";
+let shipMonthlyMem = null;
+async function loadShippingMonthly() {
+  if (shipMonthlyMem && Date.now() - shipMonthlyMem._ts < 5 * 60 * 1000) return shipMonthlyMem.monthly;
+  if (!blobConfigured()) return {};
+  try {
+    const { get } = await import("@vercel/blob");
+    const res = await get(SHIP_PATH, { access: "private" });
+    if (!res || res.statusCode !== 200 || !res.stream) { shipMonthlyMem = { monthly: {}, _ts: Date.now() }; return {}; }
+    const j = JSON.parse(await new Response(res.stream).text());
+    shipMonthlyMem = { monthly: j.monthly || {}, _ts: Date.now() };
+    return shipMonthlyMem.monthly;
+  } catch (e) { return {}; }
+}
+async function saveShippingMonthly(month, rec) {
+  let cur = {}; try { cur = await loadShippingMonthly(); } catch (e) {}
+  const monthly = { ...cur, [month]: rec };
+  const { put } = await import("@vercel/blob");
+  await put(SHIP_PATH, JSON.stringify({ updated: Date.now(), monthly }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
+  shipMonthlyMem = { monthly, _ts: Date.now() };
+  return monthly;
+}
+async function deleteShippingMonthly(month) {
+  let cur = {}; try { cur = await loadShippingMonthly(); } catch (e) {}
+  const monthly = { ...cur };
+  delete monthly[month];
+  const { put } = await import("@vercel/blob");
+  await put(SHIP_PATH, JSON.stringify({ updated: Date.now(), monthly }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
+  shipMonthlyMem = { monthly, _ts: Date.now() };
+  return monthly;
+}
+// 選択期間(sinceStr〜untilStr, 両端含む)の送料コストを、月次請求書データから按分して算出する。
+// allOrders は取得済み全期間の注文（キャンセル/未払い除く有効注文で、月の全体注文数=変動費の分母を出す）。
+function computeShippingCost(allOrders, sinceStr, untilStr, monthly) {
+  if (!monthly || !Object.keys(monthly).length) return null;
+  const EXC = new Set(["CANCELLED", "UNPAID"]);
+  // 月ごとの「全期間」有効注文数（変動費レートの分母。選択期間に関わらずその月まるごと）
+  const monthOrderCountAll = {};
+  for (const o of allOrders) {
+    const st = o.status || o.order_status || "";
+    if (EXC.has(st)) continue;
+    const t = jst(o.create_time);
+    const mk = t.date.slice(0, 7);
+    monthOrderCountAll[mk] = (monthOrderCountAll[mk] || 0) + 1;
+  }
+  // 選択期間内、日ごとの月キー集計（固定費の日割り用）
+  const selDaysByMonth = {};
+  {
+    let d = new Date(sinceStr + "T00:00:00Z");
+    const end = new Date(untilStr + "T00:00:00Z");
+    let guard = 0;
+    while (d.getTime() <= end.getTime() && guard < 3660) {
+      const dk = d.toISOString().slice(0, 10);
+      const mk = dk.slice(0, 7);
+      selDaysByMonth[mk] = (selDaysByMonth[mk] || 0) + 1;
+      d = new Date(d.getTime() + 86400000);
+      guard += 1;
+    }
+  }
+  // 選択期間内、月ごとの有効注文数（変動費の按分先）
+  const selOrdersByMonth = {};
+  for (const o of allOrders) {
+    const st = o.status || o.order_status || "";
+    if (EXC.has(st)) continue;
+    const t = jst(o.create_time);
+    if (t.date < sinceStr || t.date > untilStr) continue;
+    const mk = t.date.slice(0, 7);
+    selOrdersByMonth[mk] = (selOrdersByMonth[mk] || 0) + 1;
+  }
+  const daysInMonth = (mk) => { const [y, m] = mk.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).getUTCDate(); };
+  let management = 0, variable = 0; const detail = [];
+  const monthsInvolved = new Set([...Object.keys(selDaysByMonth), ...Object.keys(selOrdersByMonth)]);
+  for (const mk of monthsInvolved) {
+    const inv = monthly[mk]; if (!inv) continue;
+    const totalOrdersM = monthOrderCountAll[mk] || 0;
+    const perOrderRate = totalOrdersM > 0 ? (numF(inv.shippingFee) + numF(inv.deliveryFee)) / totalOrdersM : 0;
+    const ordersSel = selOrdersByMonth[mk] || 0;
+    const varAmt = perOrderRate * ordersSel;
+    const daysSel = selDaysByMonth[mk] || 0;
+    const dim = daysInMonth(mk) || 30;
+    const mgmtAmt = (numF(inv.managementFee) / dim) * daysSel;
+    management += mgmtAmt; variable += varAmt;
+    detail.push({
+      month: mk, managementFee: numF(inv.managementFee), shippingFee: numF(inv.shippingFee), deliveryFee: numF(inv.deliveryFee),
+      totalOrdersM, perOrderRate: Math.round(perOrderRate), ordersSel, daysSel, daysInMonth: dim,
+      mgmtAmt: Math.round(mgmtAmt), varAmt: Math.round(varAmt),
+    });
+  }
+  if (!detail.length) return null;
+  detail.sort((a, b) => (a.month < b.month ? -1 : 1));
+  return { total: Math.round(management + variable), management: Math.round(management), variable: Math.round(variable), detail };
 }
 
 // ===== 月次配信時間（harbor-ranking data.json から自動取得・手作業ゼロ） =====
@@ -695,6 +797,9 @@ function numF(v) { const x = Number(v); return isFinite(x) ? x : 0; }
 function ttFundedDiscount(o) { const p = o.payment || {}; return numF(p.platform_discount) + numF(p.shipping_fee_platform_discount); }
 // 自社の実売上＝顧客支払額(total_amount) ＋ TikTok負担クーポン(platform_discount等)。
 function sellerAmount(o) { const p = o.payment || {}; return orderAmount(o) + (p.tt_funded != null ? numF(p.tt_funded) : ttFundedDiscount(o)); }
+// 商品の「上代」合計（値引き前の元の価格＝original_total_product_price）。原価推定の基準をここに揃える。
+function originalProductPrice(o) { const p = o.payment || {}; return numF(p.original_total_product_price); }
+function listAmount(o) { const p = o.payment || {}; return p.list_total != null ? numF(p.list_total) : originalProductPrice(o); }
 function prodName(li) { return li.product_name || li.sku_name || "(商品名なし)"; }
 const EXCLUDE = new Set(["CANCELLED", "UNPAID"]);
 
@@ -783,22 +888,30 @@ function aggregate(allOrders, ge, lt, refundByOrder) {
     const _ttf = gross - orderAmount(o);                                   // この注文のTikTok負担クーポン
     const _liSum = (o.line_items || []).reduce((a, x) => a + (Number(x.sale_price || 0) || 0), 0);
     const _fac = (_ttf > 0 && _liSum > 0) ? (_liSum + _ttf) / _liSum : 1;  // 明細に掛ける補正係数（クーポン按分）
+    // 原価推定の基準は実売価格ではなく「上代（値引き前の元の価格）」に揃える。
+    // 自社クーポン等の値引きで実売価格が下がっても原価は下がらないはずなので、
+    // 実売価格に連動する_facではなく、上代合計(_listTotal)を明細に按分した係数を使う。
+    // 上代データが無い注文（このフィールド追加より前に取り込んだ過去分など）は、
+    // 従来通り_fac（実売価格ベース）にフォールバックする。
+    const _listTotal = listAmount(o);
+    const _listFac = (_listTotal > 0 && _liSum > 0) ? (_listTotal / _liSum) : _fac;
     for (const li of (o.line_items || [])) {
       units += 1; byDay[t.date].units += 1;
       const name = prodName(li); const _rawSp = Number(li.sale_price || 0) || 0;
       const _rfShare = (rf > 0 && _liSum > 0) ? (_rawSp / _liSum) * rf : 0; // この明細に按分した返金額
       const sp = _rawSp * _fac - _rfShare;
-      const p = byProduct[name] || (byProduct[name] = { net: 0, units: 0, _orders: new Set(), _new: new Set(), _exist: new Set(), sellerSku: "" });
+      const listSp = _rawSp * _listFac; // この明細の上代按分額（原価推定専用。返金があっても原価は減らさない）
+      const p = byProduct[name] || (byProduct[name] = { net: 0, listNet: 0, units: 0, _orders: new Set(), _new: new Set(), _exist: new Set(), sellerSku: "" });
       if (!p.sellerSku && (li.seller_sku || li.sku_id)) p.sellerSku = String(li.seller_sku || li.sku_id);
-      p.net += sp; p.units += 1; p._orders.add(o.id);
+      p.net += sp; p.listNet += listSp; p.units += 1; p._orders.add(o.id);
       if (k) { if (isNewCust) p._new.add(k); else p._exist.add(k); }
       const pc = prodCancel[name] || (prodCancel[name] = { ordered: 0, cancelled: 0 }); pc.ordered += 1;
-      if (isNewCust) { newUnits += 1; const np = newProd[name] || (newProd[name] = { net: 0, units: 0, _orders: new Set() }); np.net += sp; np.units += 1; np._orders.add(o.id); }
-      if (isRepeatOrder) { repUnits += 1; const rp = repProd[name] || (repProd[name] = { net: 0, units: 0, _orders: new Set() }); rp.net += sp; rp.units += 1; rp._orders.add(o.id); }
+      if (isNewCust) { newUnits += 1; const np = newProd[name] || (newProd[name] = { net: 0, listNet: 0, units: 0, _orders: new Set() }); np.net += sp; np.listNet += listSp; np.units += 1; np._orders.add(o.id); }
+      if (isRepeatOrder) { repUnits += 1; const rp = repProd[name] || (repProd[name] = { net: 0, listNet: 0, units: 0, _orders: new Set() }); rp.net += sp; rp.listNet += listSp; rp.units += 1; rp._orders.add(o.id); }
     }
   }
   const toArr = (m) => Object.entries(m).map(([name, v]) => ({
-    name, net: Math.round(v.net), units: v.units, orders: v._orders.size,
+    name, net: Math.round(v.net), listNet: Math.round(v.listNet || 0), units: v.units, orders: v._orders.size,
     newBuyers: v._new ? v._new.size : 0, existBuyers: v._exist ? v._exist.size : 0,
     sellerSku: v.sellerSku || "",
   })).sort((a, b) => b.net - a.net);
@@ -1261,6 +1374,17 @@ export default async function handler(req, res) {
     const skipInv = !!(body && body.compare);
     if (!light) {
       applyCosts(agg, allOrders, overrides, manualCosts, rate);
+      // 送料コスト（エンコントロ請求書・月次手入力）を粗利から差し引く
+      try {
+        const shipMonthly = await loadShippingMonthly();
+        agg.shippingMonthly = shipMonthly;
+        const shipping = computeShippingCost(allOrders, R.sinceStr, R.untilStr, shipMonthly);
+        if (shipping) {
+          agg.profit.shipping = shipping;
+          agg.profit.grossProfit -= shipping.total;
+          agg.profit.grossMargin = agg.profit.revenue ? agg.profit.grossProfit / agg.profit.revenue : 0;
+        }
+      } catch (e) { /* 送料データ取得失敗はダッシュボード本体に影響させない */ }
       if (!skipInv) {
         // TikTok Shop 実在庫（商品権限が必要。失敗してもダッシュボード本体は表示）
         try {
