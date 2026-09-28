@@ -203,11 +203,13 @@ export default async function handler(req, res) {
       const durationSec = num(s.durationSec);
       const pins = s.pins || [];
       const pinGmvSum = pins.reduce((a, p) => a + num(p.gmv), 0);
-      const hasScraped = num(s.gmv) > 0;
-      // 画面基準（優先）: 帰属＝画面の派生GMV、配信中＝5分バケットの合計
-      const attributed = hasScraped ? num(s.gmv) : Math.round(d.attributedGmv);
-      const inLive = pins.length ? pinGmvSum : (d.inLiveGmv != null ? d.inLiveGmv : null);
-      const after = (attributed && inLive != null) ? Math.max(0, attributed - inLive) : null;
+      // 基準は必ず揃える（画面基準とAPI基準を混ぜると後追い比率が壊れるため）。
+      //  画面基準: 帰属＝画面の派生GMV、配信中＝5分バケットGMVの合計（どちらも画面由来）
+      //  API基準 : 帰属＝direct_gmvの合計、配信中＝分単位GMVの合計（どちらもAPI由来）
+      const useScreen = num(s.gmv) > 0 && pins.length > 0;
+      const attributed = useScreen ? num(s.gmv) : Math.round(d.attributedGmv);
+      const inLive = useScreen ? pinGmvSum : (d.inLiveGmv != null ? d.inLiveGmv : null);
+      const after = (attributed > 0 && inLive != null) ? Math.max(0, attributed - inLive) : null;
       lives.push({
         liveId: s.liveId, date: s.date, startTime: s.startTime || "", endTime: s.endTime || "",
         durationSec, durationMin: durationSec ? Math.round(durationSec / 60) : null,
