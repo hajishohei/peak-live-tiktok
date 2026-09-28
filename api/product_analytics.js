@@ -85,17 +85,23 @@ export default async function handler(req, res) {
   //     (/analytics/202512/shop/{live_id}/products_performance) を試す
   // レスポンス例がドキュメントに掲載されていないため、実データで構造を確認する目的。
   if (String(q.probe || "") === "live2") {
+    // live_id を直接指定した場合はStep1（bestselling lives検索）を飛ばし、Step2/3だけを試す。
+    // bestselling lives はTikTok Shop JP全体の横断ランキングであり自社ショップの絞り込みができないため、
+    // Seller Center（配信管理画面）のURLからroom_idが分かっている場合はこちらを使う。
+    // 例: GET /api/product_analytics?probe=live2&live_id=7679793465518689031
+    const directLiveId = String(q.live_id || "").trim();
     const date = String(q.date || until || since || "").trim();
     const timeSlot = String(q.time_slot || "7D").trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      res.status(200).json({ ok: false, error: "date (YYYY-MM-DD) が必要です" }); return;
+    if (!directLiveId && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      res.status(200).json({ ok: false, error: "live_id または date (YYYY-MM-DD) のいずれかが必要です" }); return;
     }
     const out = { step1_bestselling: null, step2_minute_performance: null, step3_products_performance: null };
     try {
       const shop = await getShop(env);
-      // Step1: bestselling lives
-      let liveId = null;
-      try {
+      // Step1: bestselling lives（live_id直接指定時はスキップ）
+      let liveId = directLiveId || null;
+      if (directLiveId) { out.step1_bestselling = { skipped: true, reason: "live_idが直接指定されたため" }; }
+      else try {
         const j1 = await callTT({
           path: "/analytics/202511/lives/bestselling", method: "GET",
           query: { date, time_slot: timeSlot, currency: "LOCAL" }, env, shopCipher: shop.cipher,
@@ -112,7 +118,7 @@ export default async function handler(req, res) {
           if (liveId || !o || typeof o !== "object" || depth > 4) return;
           for (const k of Object.keys(o)) {
             const v = o[k];
-            if (!liveId && /^live_id$|^room_id$|^liveId$/i.test(k) && v) { liveId = String(v); return; }
+            if (!liveId && /^live_id$|^room_id$|^liveId$|^id$/i.test(k) && v) { liveId = String(v); return; }
             if (v && typeof v === "object") findLiveId(v, depth + 1);
           }
         })(d1, 0);
