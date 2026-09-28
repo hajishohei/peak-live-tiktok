@@ -113,15 +113,21 @@ async function fetchLiveDetail(env, shop, liveId, opts = {}) {
     } else { res.productsError = { code: j && j.code, message: (j && j.message) || "" }; }
   } catch (e) { res.productsError = { message: String((e && e.message) || e).slice(0, 120) }; }
   // 分単位（配信時間内に発生した売上）
+  // 1ページ100分しか返らないため next_page_token を辿って全区間を取得する。
+  // これを怠ると長時間配信で「配信中GMV」が過少になり、後追い比率が実際より高く出る。
   if (withMinutes) {
+    let token = null, pages = 0, sum = 0;
     try {
-      const j = await callTT({
-        path: `/analytics/202510/shop_lives/${liveId}/performance_per_minutes`, method: "GET",
-        query: { currency: "LOCAL" }, env, shopCipher: shop.cipher,
-      });
-      if (j && j.code === 0) {
-        let sum = 0;
-        for (const iv of (((j.data || {}).performance || {}).intervals || [])) {
+      do {
+        const query = { currency: "LOCAL", page_size: "100" };
+        if (token) query.page_token = token;
+        const j = await callTT({
+          path: `/analytics/202510/shop_lives/${liveId}/performance_per_minutes`, method: "GET",
+          query, env, shopCipher: shop.cipher,
+        });
+        if (!j || j.code !== 0) { res.minutesError = { code: j && j.code, message: (j && j.message) || "" }; break; }
+        const ivs = (((j.data || {}).performance || {}).intervals || []);
+        for (const iv of ivs) {
           const sales = iv.sales || {}, traffic = iv.traffic || {}, inter = iv.interactions || {};
           const g = amt(sales.gmv); sum += g;
           res.minutes.push({
@@ -132,10 +138,17 @@ async function fetchLiveDetail(env, shop, liveId, opts = {}) {
             comments: num(inter.comments), likes: num(inter.likes), newFollowers: num(inter.new_followers),
           });
         }
+        const nt = (j.data || {}).next_page_token || null;
+        token = (nt && nt !== token && ivs.length) ? nt : null;
+        pages++;
+      } while (token && pages < 20);
+      if (res.minutes.length) {
         res.inLiveGmv = Math.round(sum);
+        res.minutePages = pages;
+        // ※ここでの差分は「APIの直接GMV」基準。画面の派生GMV基準の後追いは overview 側で算出する。
         res.afterGmv = Math.max(0, Math.round(res.attributedGmv - sum));
         res.afterRate = res.attributedGmv > 0 ? Math.round((res.afterGmv / res.attributedGmv) * 1000) / 10 : 0;
-      } else { res.minutesError = { code: j && j.code, message: (j && j.message) || "" }; }
+      }
     } catch (e) { res.minutesError = { message: String((e && e.message) || e).slice(0, 120) }; }
   }
   return res;
@@ -177,18 +190,38 @@ export default async function handler(req, res) {
     ]);
 
     // 各LIVEの明細は件数が多いと重いので、分単位は既定で取得する（1配信あたり1リクエスト）
+    // 配信中／後追いの算出基準について（重要）
+    //  - TikTokの画面(LIVEダッシュボード)が出す「派生GMV」と、APIの products_performance が返す
+    //    direct_gmv は別物。8/30の配信で検証すると画面35,837円/7個に対しAPIは29,984円/6個で、
+    //    双方にしか出てこない商品がある（APIは直接購入のみを見ている）。
+    //  - そのため、画面と数字を一致させたい指標（配信ごとのGMV・後追い比率）は
+    //    ブラウザ収集したセッション値（gmv＝派生GMV、pinsの各5分バケットGMV）を優先する。
+    //  - APIの値は内訳・商品別ランキング用として併記する（api* フィールド）。
     const lives = [];
     for (const s of targets) {
       const d = await fetchLiveDetail(env, shop, s.liveId, { withMinutes: true });
       const durationSec = num(s.durationSec);
+      const pins = s.pins || [];
+      const pinGmvSum = pins.reduce((a, p) => a + num(p.gmv), 0);
+      const hasScraped = num(s.gmv) > 0;
+      // 画面基準（優先）: 帰属＝画面の派生GMV、配信中＝5分バケットの合計
+      const attributed = hasScraped ? num(s.gmv) : Math.round(d.attributedGmv);
+      const inLive = pins.length ? pinGmvSum : (d.inLiveGmv != null ? d.inLiveGmv : null);
+      const after = (attributed && inLive != null) ? Math.max(0, attributed - inLive) : null;
       lives.push({
         liveId: s.liveId, date: s.date, startTime: s.startTime || "", endTime: s.endTime || "",
         durationSec, durationMin: durationSec ? Math.round(durationSec / 60) : null,
         viewers: num(s.viewers), impressions: num(s.impressions),
-        attributedGmv: Math.round(d.attributedGmv), inLiveGmv: d.inLiveGmv, afterGmv: d.afterGmv, afterRate: d.afterRate,
-        unitsTotal: d.unitsTotal || 0,
-        gmvPerMin: durationSec ? Math.round(d.attributedGmv / (durationSec / 60)) : null,
-        pins: s.pins || [],              // 紹介時間（ブラウザ収集）
+        attributedGmv: attributed,
+        inLiveGmv: inLive,
+        afterGmv: after,
+        afterRate: (attributed > 0 && after != null) ? Math.round((after / attributed) * 1000) / 10 : null,
+        basis: hasScraped ? "画面(派生GMV)" : "API(直接GMV)",
+        unitsTotal: num(s.units) || d.unitsTotal || 0,
+        gmvPerMin: durationSec ? Math.round(attributed / (durationSec / 60)) : null,
+        // APIの生値（突き合わせ用）
+        apiDirectGmv: Math.round(d.attributedGmv), apiInLiveGmv: d.inLiveGmv, apiUnits: d.unitsTotal || 0,
+        pins,                             // 紹介時間（ブラウザ収集）
         products: d.products.slice(0, 50),
         minuteCount: (d.minutes || []).length,
         errors: [d.productsError, d.minutesError].filter(Boolean),
@@ -212,10 +245,13 @@ export default async function handler(req, res) {
       gmvPerPinMin: p.pinMinutes > 0 ? Math.round(p.gmv / p.pinMinutes) : null,
     }));
 
+    // 後追い比率は「配信中/後追いが両方出せた配信」だけで集計する（片方欠けた配信を混ぜると率が狂うため）
     const liveAgg = lives.reduce((a, l) => {
-      a.attributed += l.attributedGmv || 0; a.inLive += l.inLiveGmv || 0; a.after += l.afterGmv || 0;
-      a.units += l.unitsTotal || 0; a.durationSec += l.durationSec || 0; return a;
-    }, { attributed: 0, inLive: 0, after: 0, units: 0, durationSec: 0 });
+      a.attributed += l.attributedGmv || 0;
+      a.units += l.unitsTotal || 0; a.durationSec += l.durationSec || 0;
+      if (l.inLiveGmv != null && l.afterGmv != null) { a.inLive += l.inLiveGmv; a.after += l.afterGmv; a.splitBase += l.attributedGmv || 0; a.splitCount++; }
+      return a;
+    }, { attributed: 0, inLive: 0, after: 0, units: 0, durationSec: 0, splitBase: 0, splitCount: 0 });
 
     res.status(200).json({
       ok: true,
@@ -225,7 +261,8 @@ export default async function handler(req, res) {
         liveAttributedGmv: liveAgg.attributed,
         inLiveGmv: liveAgg.inLive,
         afterLiveGmv: liveAgg.after,
-        afterLiveRate: liveAgg.attributed > 0 ? Math.round((liveAgg.after / liveAgg.attributed) * 1000) / 10 : 0,
+        afterLiveRate: liveAgg.splitBase > 0 ? Math.round((liveAgg.after / liveAgg.splitBase) * 1000) / 10 : null,
+        afterLiveBasisLives: liveAgg.splitCount, // 後追い比率の算出に使えた配信数
         videoGmv: videos && videos.ok ? videos.gmvTotal : null,
         productCardGmv: breakdown && breakdown.ok ? breakdown.gmv.productCard : null,
         shopTotalGmv: breakdown && breakdown.ok ? breakdown.gmv.total : null,
