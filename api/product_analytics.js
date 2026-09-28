@@ -33,6 +33,57 @@ export default async function handler(req, res) {
   const since = String(q.since || "").trim();
   const until = String(q.until || "").trim();
 
+  // ===== 診断3: 一元分析ツール化に必要なAPIが揃うかを一括調査（読み取り専用） =====
+  // GET /api/product_analytics?probe=survey&since=YYYY-MM-DD&until=YYYY-MM-DD
+  // 確認したいこと:
+  //  (A) 自社のLIVE一覧(live_id・開始終了時刻)をAPIで列挙できるか
+  //      → できれば「配信一覧・配信時間」の自動取得が可能になり、スケジュール更新が成立する
+  //  (B) 動画(ショート)経由の売上をAPIで取れるか
+  //      → 「動画で売れたもの」の分析軸が自動化できる
+  //  (C) 商品別performanceに流入元(LIVE/動画)の内訳があるか
+  // バージョン番号が不明なため、公式APIで実績のある年月版を複数試して当たりを探す。
+  if (String(q.probe || "") === "survey") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(since) || !/^\d{4}-\d{2}-\d{2}$/.test(until)) {
+      res.status(200).json({ ok: false, error: "since / until (YYYY-MM-DD) が必要です" }); return;
+    }
+    const end = addDay(until);
+    const CANDIDATES = [
+      // (A) 自社LIVE一覧
+      { group: "A_lives_list", label: "202508 shop_lives/performance", path: "/analytics/202508/shop_lives/performance", query: { start_date_ge: since, end_date_lt: end, page_size: "50", currency: "LOCAL" } },
+      { group: "A_lives_list", label: "202405 shop_lives/performance", path: "/analytics/202405/shop_lives/performance", query: { start_date_ge: since, end_date_lt: end, page_size: "50", currency: "LOCAL" } },
+      { group: "A_lives_list", label: "202409 shop_lives/performance", path: "/analytics/202409/shop_lives/performance", query: { start_date_ge: since, end_date_lt: end, page_size: "50", currency: "LOCAL" } },
+      { group: "A_lives_list", label: "202510 shop_lives/performance", path: "/analytics/202510/shop_lives/performance", query: { start_date_ge: since, end_date_lt: end, page_size: "50", currency: "LOCAL" } },
+      { group: "A_lives_list", label: "202512 shop_lives/performance", path: "/analytics/202512/shop_lives/performance", query: { start_date_ge: since, end_date_lt: end, page_size: "50", currency: "LOCAL" } },
+      { group: "A_lives_list", label: "202508 shop_lives/overview_performance", path: "/analytics/202508/shop_lives/overview_performance", query: { start_date_ge: since, end_date_lt: end, currency: "LOCAL" } },
+      // (B) 動画経由の売上
+      { group: "B_videos_list", label: "202409 shop_videos/performance", path: "/analytics/202409/shop_videos/performance", query: { start_date_ge: since, end_date_lt: end, page_size: "50", currency: "LOCAL" } },
+      { group: "B_videos_list", label: "202405 shop_videos/performance", path: "/analytics/202405/shop_videos/performance", query: { start_date_ge: since, end_date_lt: end, page_size: "50", currency: "LOCAL" } },
+      { group: "B_videos_list", label: "202510 shop_videos/performance", path: "/analytics/202510/shop_videos/performance", query: { start_date_ge: since, end_date_lt: end, page_size: "50", currency: "LOCAL" } },
+      { group: "B_videos_list", label: "202508 shop_videos/overview_performance", path: "/analytics/202508/shop_videos/overview_performance", query: { start_date_ge: since, end_date_lt: end, currency: "LOCAL" } },
+      // (C) ショップ全体・商品別（流入元内訳の有無を見る）
+      { group: "C_shop", label: "202405 shop/performance", path: "/analytics/202405/shop/performance", query: { start_date_ge: since, end_date_lt: end, currency: "LOCAL" } },
+      { group: "C_shop", label: "202405 shop_products/performance", path: "/analytics/202405/shop_products/performance", query: { start_date_ge: since, end_date_lt: end, page_size: "20", currency: "LOCAL", sort_field: "gmv", sort_order: "DESC" } },
+    ];
+    try {
+      const shop = await getShop(env);
+      const out = [];
+      for (const c of CANDIDATES) {
+        try {
+          const j = await callTT({ path: c.path, method: "GET", query: c.query, env, shopCipher: shop.cipher });
+          const d = j && j.data;
+          out.push({
+            group: c.group, label: c.label, ok: j && j.code === 0, code: j && j.code,
+            message: String((j && j.message) || "").slice(0, 120),
+            keys: d && typeof d === "object" ? Object.keys(d).slice(0, 20) : null,
+            sample: d ? JSON.stringify(d).slice(0, 1200) : null,
+          });
+        } catch (e) { out.push({ group: c.group, label: c.label, error: String((e && e.message) || e).slice(0, 120) }); }
+      }
+      res.status(200).json({ ok: true, since, until, summary: out.map(r => `${r.group} / ${r.label} => ${r.ok ? "OK" : ("NG code=" + (r.code || r.error))}`), results: out });
+    } catch (e) { res.status(200).json({ ok: false, error: String((e && e.message) || e) }); }
+    return;
+  }
+
   // ===== 診断: LIVE分析APIがこのショップで使えるか調べる（読み取り専用・固定の候補のみ） =====
   // GET /api/product_analytics?probe=live&since=YYYY-MM-DD&until=YYYY-MM-DD
   // 公式ドキュメント確認済み: /analytics/202508/shop_lives/performance の interaction_performance に
@@ -128,16 +179,30 @@ export default async function handler(req, res) {
       // Step2/3: liveIdが取れた場合のみ試す
       if (liveId) {
         try {
+          const granularity = String(q.granularity || "").trim();
+          const q2 = { currency: "LOCAL" };
+          if (granularity) q2.granularity = granularity;
           const j2 = await callTT({
             path: `/analytics/202510/shop_lives/${liveId}/performance_per_minutes`, method: "GET",
-            query: { currency: "LOCAL" }, env, shopCipher: shop.cipher,
+            query: q2, env, shopCipher: shop.cipher,
           });
           const d2 = j2 && j2.data;
+          // UI(LIVEダッシュボード)の「ピン留め」表示の裏付けとして、"pin"を含むフィールドが
+          // レスポンスのどこかに無いか全文検索する（前回は3000文字で打ち切っていて見落とした可能性があるため）。
+          const full2 = d2 ? JSON.stringify(d2) : "";
+          const pinIdx2 = full2.toLowerCase().indexOf("pin");
+          const perf = d2 && d2.performance;
+          const firstInterval = perf && Array.isArray(perf.intervals) ? perf.intervals[0] : null;
           out.step2_minute_performance = {
             code: j2 && j2.code, message: String((j2 && j2.message) || "").slice(0, 200),
             ok: j2 && j2.code === 0,
             keys: d2 && typeof d2 === "object" ? Object.keys(d2).slice(0, 30) : null,
-            sample: d2 ? JSON.stringify(d2).slice(0, 3000) : null,
+            performanceKeys: perf && typeof perf === "object" ? Object.keys(perf).slice(0, 30) : null,
+            firstIntervalFullKeys: firstInterval ? Object.keys(firstInterval) : null,
+            firstIntervalFull: firstInterval ? JSON.stringify(firstInterval) : null,
+            pinFieldFoundInFullResponse: pinIdx2 >= 0,
+            pinFieldContext: pinIdx2 >= 0 ? full2.slice(Math.max(0, pinIdx2 - 80), pinIdx2 + 200) : null,
+            sample: d2 ? full2.slice(0, 2000) : null,
           };
         } catch (e) { out.step2_minute_performance = { error: String((e && e.message) || e).slice(0, 200) }; }
 
