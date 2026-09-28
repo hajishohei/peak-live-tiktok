@@ -4,7 +4,7 @@
 // GET例: /api/live_ingest?date=2026-06-28&sec=12846&liveCount=2&key=xxx
 //        （sec の代わりに hours=3.5 や hms=3時間34分6秒 でも可）
 // POST(JSON): { date, sec?|hours?|hms?, liveCount?, key? }
-import { saveLiveDaily, loadLiveDaily, saveLiveDailyBulk } from "./query.js";
+import { saveLiveDaily, loadLiveDaily, saveLiveDailyBulk, loadLiveSessions, saveLiveSessions } from "./query.js";
 
 function hmsToSec(s) {
   const m = String(s || "").match(/(?:(\d+)\s*時間)?\s*(?:(\d+)\s*分)?\s*(?:(\d+)\s*秒)?/);
@@ -29,6 +29,32 @@ export default async function handler(req, res) {
   const need = process.env.LIVE_INGEST_KEY;
   if (!need) { res.status(200).json({ ok: false, error: "LIVE_INGEST_KEY が未設定です。Vercelの環境変数に設定してください（Basic認証の対象外エンドポイントのため必須）" }); return; }
   if (String(p.key || "") !== String(need)) { res.status(200).json({ ok: false, error: "認証キーが違います" }); return; }
+  // ===== LIVEセッション（配信1回ごと・紹介時間つき） =====
+  // 毎日のスケジュールタスクがSeller Centerの画面から読み取って投入する。
+  // POST(JSON): { key, sessions: [{ liveId, date, startTime, endTime, durationSec, viewers, impressions, gmv, units,
+  //                                 pins: [{from,to,minutes,productName,productId,gmv,impressions}] }] }
+  // GET: /api/live_ingest?key=xxx&sessionsList=1  … 保存済みセッションの一覧（軽量サマリ）
+  if (p.sessionsList != null) {
+    try {
+      const cur = await loadLiveSessions();
+      const list = Object.values(cur || {})
+        .map((s) => ({ liveId: s.liveId, date: s.date, startTime: s.startTime, endTime: s.endTime, durationSec: s.durationSec, gmv: s.gmv, units: s.units, pinCount: (s.pins || []).length, updatedAt: s.updatedAt }))
+        .sort((a, b) => String(b.date + b.startTime).localeCompare(String(a.date + a.startTime)));
+      res.status(200).json({ ok: true, mode: "sessionsList", total: list.length, sessions: list });
+    } catch (e) { res.status(200).json({ ok: false, error: String((e && e.message) || e) }); }
+    return;
+  }
+  if (p.sessions != null) {
+    let arr = p.sessions;
+    if (typeof arr === "string") { try { arr = JSON.parse(arr); } catch (e) { res.status(200).json({ ok: false, error: "sessions のJSONが不正です" }); return; } }
+    if (!Array.isArray(arr)) { res.status(200).json({ ok: false, error: "sessions は配列で送ってください" }); return; }
+    try {
+      const r = await saveLiveSessions(arr);
+      res.status(200).json({ ok: true, mode: "sessions", saved: r.saved, totalSessions: r.total });
+    } catch (e) { res.status(200).json({ ok: false, error: String((e && e.message) || e) }); }
+    return;
+  }
+
   // 読み取り専用モード（書き込まない）: 現在保存されている日次データを一覧で返す。
   if (p.list != null || p.peek != null) {
     try {

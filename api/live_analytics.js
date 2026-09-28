@@ -1,0 +1,245 @@
+// LIVE・動画の一元分析API（読み取り専用）
+//
+// 背景（2026-09-28 実データで検証済み）:
+//  - shop/performance(202405) は GMVを LIVE / VIDEO / PRODUCT_CARD の3流入元に分解して返す ... OK
+//  - shop_videos/performance(202409) は動画1本ごとのGMV・販売数・紐づく商品を返す ....... OK
+//  - shop_lives/performance(202508) は「自社LIVE一覧」だがTikTok側の内部エラー(36009003)で使用不可
+//      → LIVE一覧(live_id・開始終了時刻)は毎日のスケジュールタスクがブラウザから取得し、
+//        /api/live_ingest 経由でBlobに蓄積する。ここではそれを読んで使う。
+//  - 個別LIVEの products_performance(202512) / performance_per_minutes(202510) は live_id があればOK
+//
+// 主要な導出:
+//   配信中GMV = 分単位データ(performance_per_minutes)の合計（＝配信時間内に発生した売上）
+//   LIVE帰属GMV = 商品別実績(products_performance)の合計（＝配信終了後の後追い購入も含む）
+//   後追いGMV  = LIVE帰属GMV − 配信中GMV
+import { callTT, getShop, loadLiveSessions } from "./query.js";
+
+function addDay(d) { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); }
+function num(v) { const n = Number(v); return isFinite(n) ? n : 0; }
+function amt(o) { return o && o.amount != null ? num(o.amount) : 0; }
+function isDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")); }
+
+// ---- (1) ショップ全体のGMVを流入元(LIVE/動画/商品カード)で分解 ----
+async function fetchBreakdown(env, shop, since, until) {
+  const j = await callTT({
+    path: "/analytics/202405/shop/performance", method: "GET",
+    query: { start_date_ge: since, end_date_lt: addDay(until), currency: "LOCAL" },
+    env, shopCipher: shop.cipher,
+  });
+  if (!j || j.code !== 0) return { ok: false, code: j && j.code, message: (j && j.message) || "取得失敗" };
+  const iv = (((j.data || {}).performance || {}).intervals || [])[0] || {};
+  const pick = (arr, type) => { const f = (arr || []).find((x) => x.type === type); return f || null; };
+  const gb = iv.gmv_breakdowns || [];
+  const ib = iv.product_impression_breakdowns || [];
+  const vb = iv.product_page_view_breakdowns || [];
+  const live = amt(pick(gb, "LIVE")), video = amt(pick(gb, "VIDEO")), card = amt(pick(gb, "PRODUCT_CARD"));
+  const total = amt(iv.gmv) || (live + video + card);
+  const share = (x) => (total > 0 ? Math.round((x / total) * 1000) / 10 : 0);
+  return {
+    ok: true,
+    period: { since, until },
+    gmv: { total, live, video, productCard: card },
+    share: { live: share(live), video: share(video), productCard: share(card) },
+    orders: num(iv.orders), skuOrders: num(iv.sku_orders), unitsSold: num(iv.units_sold),
+    avgOrderValue: amt(iv.avg_order_value),
+    refunds: amt(iv.refunds), cancellationsAndReturns: num(iv.cancellations_and_returns),
+    impressions: { total: num(iv.product_impressions), live: num((pick(ib, "LIVE") || {}).amount), video: num((pick(ib, "VIDEO") || {}).amount), productCard: num((pick(ib, "PRODUCT_CARD") || {}).amount) },
+    pageViews: { total: num(iv.product_page_views), live: num((pick(vb, "LIVE") || {}).amount), video: num((pick(vb, "VIDEO") || {}).amount), productCard: num((pick(vb, "PRODUCT_CARD") || {}).amount) },
+  };
+}
+
+// ---- (2) 動画ごとの実績（全ページ取得） ----
+async function fetchVideos(env, shop, since, until, maxPages = 10) {
+  const out = []; let token = null; let pages = 0; let latest = null; let totalCount = 0;
+  do {
+    const query = { start_date_ge: since, end_date_lt: addDay(until), page_size: "50", currency: "LOCAL" };
+    if (token) query.page_token = token;
+    const j = await callTT({ path: "/analytics/202409/shop_videos/performance", method: "GET", query, env, shopCipher: shop.cipher });
+    if (!j || j.code !== 0) return { ok: false, code: j && j.code, message: (j && j.message) || "取得失敗", videos: out };
+    const d = j.data || {};
+    latest = d.latest_available_date || latest;
+    totalCount = num(d.total_count) || totalCount;
+    for (const v of d.videos || []) {
+      out.push({
+        id: String(v.id || ""), title: String(v.title || "").slice(0, 200),
+        username: String(v.username || ""), postedAt: v.video_post_time || "",
+        views: num(v.views), ctr: num(v.click_through_rate),
+        gmv: amt(v.gmv), unitsSold: num(v.units_sold), skuOrders: num(v.sku_orders),
+        products: (v.products || []).map((p) => ({ id: String(p.id || ""), name: String(p.name || "") })),
+      });
+    }
+    token = d.next_page_token || null; pages++;
+    // next_page_token が同じ値を返し続けるケースを避けるため、取得件数が0なら打ち切る
+    if (!(d.videos || []).length) break;
+  } while (token && pages < maxPages);
+  out.sort((a, b) => b.gmv - a.gmv);
+  const sum = out.reduce((s, v) => s + v.gmv, 0);
+  const units = out.reduce((s, v) => s + v.unitsSold, 0);
+  // 自社アカウント(.choice2)とアフィリエイター(それ以外)を分けて見る
+  const byOwner = {};
+  for (const v of out) { const k = v.username || "(不明)"; if (!byOwner[k]) byOwner[k] = { username: k, videos: 0, gmv: 0, unitsSold: 0, views: 0 }; const o = byOwner[k]; o.videos++; o.gmv += v.gmv; o.unitsSold += v.unitsSold; o.views += v.views; }
+  return {
+    ok: true, latestAvailableDate: latest, totalCount, fetched: out.length,
+    gmvTotal: sum, unitsTotal: units,
+    byCreator: Object.values(byOwner).sort((a, b) => b.gmv - a.gmv),
+    videos: out,
+  };
+}
+
+// ---- (3) 個別LIVEの商品別実績＋分単位実績 → 配信中/後追いを分解 ----
+async function fetchLiveDetail(env, shop, liveId, opts = {}) {
+  const withMinutes = opts.withMinutes !== false;
+  const res = { liveId: String(liveId), products: [], inLiveGmv: null, attributedGmv: 0, afterGmv: null, minutes: [] };
+  // 商品別（LIVE帰属＝後追い購入も含む）
+  try {
+    const j = await callTT({
+      path: `/analytics/202512/shop/${liveId}/products_performance`, method: "GET",
+      query: { currency: "LOCAL", page_size: "100" }, env, shopCipher: shop.cipher,
+    });
+    if (j && j.code === 0) {
+      for (const p of ((j.data || {}).products || [])) {
+        const s = p.sales || {}, t = p.traffic || {};
+        const gmv = amt(s.direct_gmv);
+        res.products.push({
+          id: String(p.id || ""), name: String(p.name || ""),
+          gmv, unitsSold: num(s.items_sold), skuOrders: num(s.sku_orders), customers: num(s.customers),
+          impressions: num(t.product_impressions), clicks: num(t.produt_clicks != null ? t.produt_clicks : t.product_clicks),
+          ctr: num(t.ctr), addToCart: num(t.add_to_cart_count),
+        });
+        res.attributedGmv += gmv;
+      }
+      res.products.sort((a, b) => b.gmv - a.gmv);
+      res.unitsTotal = res.products.reduce((s, p) => s + p.unitsSold, 0);
+    } else { res.productsError = { code: j && j.code, message: (j && j.message) || "" }; }
+  } catch (e) { res.productsError = { message: String((e && e.message) || e).slice(0, 120) }; }
+  // 分単位（配信時間内に発生した売上）
+  if (withMinutes) {
+    try {
+      const j = await callTT({
+        path: `/analytics/202510/shop_lives/${liveId}/performance_per_minutes`, method: "GET",
+        query: { currency: "LOCAL" }, env, shopCipher: shop.cipher,
+      });
+      if (j && j.code === 0) {
+        let sum = 0;
+        for (const iv of (((j.data || {}).performance || {}).intervals || [])) {
+          const sales = iv.sales || {}, traffic = iv.traffic || {}, inter = iv.interactions || {};
+          const g = amt(sales.gmv); sum += g;
+          res.minutes.push({
+            start: num(iv.start_time), end: num(iv.end_time), gmv: g,
+            itemsSold: num(sales.items_sold), orders: num(sales.main_orders),
+            impressions: num(traffic.impressions), productImpressions: num(traffic.product_impressions),
+            productClicks: num(traffic.product_clicks), viewers: num(traffic.viewers), views: num(traffic.views),
+            comments: num(inter.comments), likes: num(inter.likes), newFollowers: num(inter.new_followers),
+          });
+        }
+        res.inLiveGmv = Math.round(sum);
+        res.afterGmv = Math.max(0, Math.round(res.attributedGmv - sum));
+        res.afterRate = res.attributedGmv > 0 ? Math.round((res.afterGmv / res.attributedGmv) * 1000) / 10 : 0;
+      } else { res.minutesError = { code: j && j.code, message: (j && j.message) || "" }; }
+    } catch (e) { res.minutesError = { message: String((e && e.message) || e).slice(0, 120) }; }
+  }
+  return res;
+}
+
+export default async function handler(req, res) {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  const env = {
+    store: process.env.TTS_SHOP || "", key: process.env.TTS_APP_KEY, secret: process.env.TTS_APP_SECRET,
+    token: process.env.TTS_ACCESS_TOKEN, refresh: process.env.TTS_REFRESH_TOKEN,
+  };
+  const q = req.query || {};
+  const mode = String(q.mode || "overview");
+  const until = isDate(q.until) ? String(q.until) : new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+  const since = isDate(q.since) ? String(q.since) : (() => { const x = new Date(until + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() - 29); return x.toISOString().slice(0, 10); })();
+
+  try {
+    const shop = await getShop(env);
+
+    if (mode === "breakdown") { res.status(200).json(await fetchBreakdown(env, shop, since, until)); return; }
+    if (mode === "videos") { res.status(200).json(await fetchVideos(env, shop, since, until)); return; }
+    if (mode === "live") {
+      const liveId = String(q.live_id || "").trim();
+      if (!/^\d+$/.test(liveId)) { res.status(200).json({ ok: false, error: "live_id が必要です" }); return; }
+      res.status(200).json({ ok: true, ...(await fetchLiveDetail(env, shop, liveId)) }); return;
+    }
+
+    // overview: 流入元内訳 ＋ 動画 ＋ 蓄積済みLIVEセッション（各LIVEの配信中/後追い内訳つき）
+    const sessions = await loadLiveSessions();
+    const inRange = Object.values(sessions || {})
+      .filter((s) => s && s.date >= since && s.date <= until)
+      .sort((a, b) => String(b.date + (b.startTime || "")).localeCompare(String(a.date + (a.startTime || ""))));
+    const limit = Math.max(1, Math.min(40, Number(q.limit) || 40));
+    const targets = inRange.slice(0, limit);
+
+    const [breakdown, videos] = await Promise.all([
+      fetchBreakdown(env, shop, since, until).catch((e) => ({ ok: false, error: String((e && e.message) || e) })),
+      fetchVideos(env, shop, since, until).catch((e) => ({ ok: false, error: String((e && e.message) || e) })),
+    ]);
+
+    // 各LIVEの明細は件数が多いと重いので、分単位は既定で取得する（1配信あたり1リクエスト）
+    const lives = [];
+    for (const s of targets) {
+      const d = await fetchLiveDetail(env, shop, s.liveId, { withMinutes: true });
+      const durationSec = num(s.durationSec);
+      lives.push({
+        liveId: s.liveId, date: s.date, startTime: s.startTime || "", endTime: s.endTime || "",
+        durationSec, durationMin: durationSec ? Math.round(durationSec / 60) : null,
+        viewers: num(s.viewers), impressions: num(s.impressions),
+        attributedGmv: Math.round(d.attributedGmv), inLiveGmv: d.inLiveGmv, afterGmv: d.afterGmv, afterRate: d.afterRate,
+        unitsTotal: d.unitsTotal || 0,
+        gmvPerMin: durationSec ? Math.round(d.attributedGmv / (durationSec / 60)) : null,
+        pins: s.pins || [],              // 紹介時間（ブラウザ収集）
+        products: d.products.slice(0, 50),
+        minuteCount: (d.minutes || []).length,
+        errors: [d.productsError, d.minutesError].filter(Boolean),
+      });
+    }
+
+    // 商品別の横断集計（LIVE分）: 何回紹介され、累計何個・いくら売れたか
+    const byProduct = {};
+    for (const lv of lives) {
+      const pinMin = {};
+      for (const p of lv.pins || []) { const k = String(p.productName || ""); pinMin[k] = (pinMin[k] || 0) + num(p.minutes); }
+      for (const p of lv.products) {
+        if (!byProduct[p.id]) byProduct[p.id] = { id: p.id, name: p.name, lives: 0, gmv: 0, unitsSold: 0, impressions: 0, addToCart: 0, pinMinutes: 0 };
+        const o = byProduct[p.id];
+        o.lives++; o.gmv += p.gmv; o.unitsSold += p.unitsSold; o.impressions += p.impressions; o.addToCart += p.addToCart;
+        if (pinMin[p.name]) o.pinMinutes += pinMin[p.name];
+      }
+    }
+    const products = Object.values(byProduct).sort((a, b) => b.gmv - a.gmv).map((p) => ({
+      ...p, gmv: Math.round(p.gmv),
+      gmvPerPinMin: p.pinMinutes > 0 ? Math.round(p.gmv / p.pinMinutes) : null,
+    }));
+
+    const liveAgg = lives.reduce((a, l) => {
+      a.attributed += l.attributedGmv || 0; a.inLive += l.inLiveGmv || 0; a.after += l.afterGmv || 0;
+      a.units += l.unitsTotal || 0; a.durationSec += l.durationSec || 0; return a;
+    }, { attributed: 0, inLive: 0, after: 0, units: 0, durationSec: 0 });
+
+    res.status(200).json({
+      ok: true,
+      period: { since, until },
+      // 3分類の総括（ご要望の「配信中・後追い・動画」）
+      summary: {
+        liveAttributedGmv: liveAgg.attributed,
+        inLiveGmv: liveAgg.inLive,
+        afterLiveGmv: liveAgg.after,
+        afterLiveRate: liveAgg.attributed > 0 ? Math.round((liveAgg.after / liveAgg.attributed) * 1000) / 10 : 0,
+        videoGmv: videos && videos.ok ? videos.gmvTotal : null,
+        productCardGmv: breakdown && breakdown.ok ? breakdown.gmv.productCard : null,
+        shopTotalGmv: breakdown && breakdown.ok ? breakdown.gmv.total : null,
+        liveCount: lives.length,
+        liveTotalMin: Math.round(liveAgg.durationSec / 60),
+        liveUnits: liveAgg.units,
+        gmvPerLiveMin: liveAgg.durationSec ? Math.round(liveAgg.attributed / (liveAgg.durationSec / 60)) : null,
+      },
+      breakdown, lives, products,
+      videos: videos && videos.ok ? { total: videos.totalCount, fetched: videos.fetched, gmvTotal: videos.gmvTotal, unitsTotal: videos.unitsTotal, byCreator: videos.byCreator, top: videos.videos.slice(0, 30) } : videos,
+      sessionsStored: Object.keys(sessions || {}).length,
+      note: lives.length === 0 ? "LIVEセッションが未登録です。毎日のスケジュールタスク（ブラウザ収集）で /api/live_ingest に登録してください。" : undefined,
+    });
+  } catch (e) {
+    res.status(200).json({ ok: false, error: String((e && e.message) || e) });
+  }
+}

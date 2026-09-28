@@ -134,7 +134,7 @@ function matchBase(name, overrides, sku) {
   if (bb && bj >= 0.5) return { base: bb, source: "sd-auto", score: bj };
   return null;
 }
-export { matchBase, normName, getCostIndex, applyCosts, applyTTInventory, baseFromSku, callTT, isExpiredAuth, buildAndSaveSnapshot, getShop, getAllProducts, saveLiveDaily, loadLiveDaily, saveLiveDailyBulk, loadShippingMonthly, saveShippingMonthly, deleteShippingMonthly };
+export { matchBase, normName, getCostIndex, applyCosts, applyTTInventory, baseFromSku, callTT, isExpiredAuth, buildAndSaveSnapshot, getShop, getAllProducts, saveLiveDaily, loadLiveDaily, saveLiveDailyBulk, loadShippingMonthly, saveShippingMonthly, deleteShippingMonthly, loadLiveSessions, saveLiveSessions };
 function manualCostFor(name, manualCosts) {
   if (!manualCosts) return null;
   const v = manualCosts[name];
@@ -484,6 +484,59 @@ async function saveLiveDaily(date, rec) {
   liveDailyMem = { daily, _ts: Date.now() };
   return Object.keys(daily).length;
 }
+// ===== LIVEセッション（配信1回ごと・Blob） =====
+// TikTokの公式APIは「自社のLIVE一覧」を返せない（shop_lives/performance が内部エラー36009003）ため、
+// 毎日のスケジュールタスクがSeller Centerの画面から live_id・開始終了時刻・紹介時間(ピン留め)を読み取り、
+// /api/live_ingest 経由でここに蓄積する。live_idさえ分かれば、商品別実績と分単位実績は公式APIで取れる。
+const LIVE_SESSIONS_PATH = "tts-live-sessions.json";
+let liveSessionsMem = null;
+async function loadLiveSessions() {
+  if (liveSessionsMem && Date.now() - liveSessionsMem._ts < 5 * 60 * 1000) return liveSessionsMem.sessions;
+  if (!blobConfigured()) return {};
+  try {
+    const { get } = await import("@vercel/blob");
+    const res = await get(LIVE_SESSIONS_PATH, { access: "private" });
+    if (!res || res.statusCode !== 200 || !res.stream) { liveSessionsMem = { sessions: {}, _ts: Date.now() }; return {}; }
+    const j = JSON.parse(await new Response(res.stream).text());
+    liveSessionsMem = { sessions: j.sessions || {}, _ts: Date.now() };
+    return liveSessionsMem.sessions;
+  } catch (e) { return {}; }
+}
+// recs = [{ liveId, date, startTime, endTime, durationSec, viewers, impressions, gmv, units, pins:[{from,to,minutes,productName,productId,gmv,impressions}] }, ...]
+// liveId をキーに上書き保存（同じ配信を再収集したら最新で置き換わる）。
+async function saveLiveSessions(recs) {
+  let cur = {}; try { cur = await loadLiveSessions(); } catch (e) {}
+  const sessions = { ...cur };
+  let saved = 0;
+  for (const r of recs || []) {
+    const id = String((r && r.liveId) || "").trim();
+    if (!/^\d+$/.test(id)) continue;
+    sessions[id] = {
+      liveId: id,
+      date: String(r.date || "").slice(0, 10),
+      startTime: String(r.startTime || ""),
+      endTime: String(r.endTime || ""),
+      durationSec: Math.max(0, Math.round(Number(r.durationSec) || 0)),
+      viewers: Math.round(Number(r.viewers) || 0),
+      impressions: Math.round(Number(r.impressions) || 0),
+      gmv: Math.round(Number(r.gmv) || 0),
+      units: Math.round(Number(r.units) || 0),
+      pins: Array.isArray(r.pins) ? r.pins.slice(0, 200).map((p) => ({
+        from: String(p.from || ""), to: String(p.to || ""),
+        minutes: Math.max(0, Math.round(Number(p.minutes) || 0)),
+        productName: String(p.productName || ""), productId: String(p.productId || ""),
+        gmv: Math.round(Number(p.gmv) || 0), impressions: Math.round(Number(p.impressions) || 0),
+      })) : [],
+      updatedAt: Date.now(),
+    };
+    saved++;
+  }
+  const { put } = await import("@vercel/blob");
+  await put(LIVE_SESSIONS_PATH, JSON.stringify({ updated: Date.now(), sessions }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
+  liveSessionsMem = { sessions, _ts: Date.now() };
+  return { saved, total: Object.keys(sessions).length };
+}
+
 // 一括保存: recMap = { "YYYY-MM-DD": {sec,hms,liveCount}, ... }。replaceMonth("YYYY-MM")指定でその月の既存を消してから入れる（誤データの入れ替え用）。
 async function saveLiveDailyBulk(recMap, replaceMonth) {
   let cur = {}; try { cur = await loadLiveDaily(); } catch (e) {}
