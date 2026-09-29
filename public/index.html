@@ -2619,22 +2619,31 @@ renderCmpList(); renderCmpPick(); renderCmpCompare();
    配信明細はサーバ側でBlobにキャッシュされ、1リクエストにつき数件ずつ計算される（タイムアウト回避）。 */
 let lvData=null, lvBusy=false;
 function lvPeriod(){
-  // 画面上部の期間指定があればそれに追随し、無ければ直近30日
-  const u=new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
-  const s=new Date(Date.now()+9*3600e3-29*86400e3).toISOString().slice(0,10);
-  return {since:s, until:u};
+  // 画面上部の集計期間に追随する（DATA.range）。未取得なら直近30日にフォールバック。
+  const today=new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
+  const r=(typeof DATA!=="undefined" && DATA && DATA.range) ? DATA.range : null;
+  if(r && r.since){
+    const until=(r.until && r.until!=="today") ? r.until : today;
+    return {since:r.since, until};
+  }
+  return {since:new Date(Date.now()+9*3600e3-29*86400e3).toISOString().slice(0,10), until:today};
 }
 async function lvLoad(){
   if(lvBusy) return; lvBusy=true;
   const p=lvPeriod(), prog=document.getElementById("lvProgress");
-  if(prog) prog.textContent="読み込み中…";
+  if(prog) prog.textContent=`読み込み中…（${p.since}〜${p.until}）`;
+  // 応答が返らないとボタンが押せないままになるので、必ず打ち切る
+  const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(), 60000);
   try{
-    const r=await fetch(`/api/live_analytics?mode=overview&since=${p.since}&until=${p.until}&limit=40`,{credentials:"include"});
+    const r=await fetch(`/api/live_analytics?mode=overview&since=${p.since}&until=${p.until}&limit=40`,{credentials:"include",signal:ctrl.signal});
     const j=await r.json();
     if(!j.ok){ if(prog) prog.textContent="取得に失敗しました: "+(j.error||""); return; }
     lvData=j; lvRender();
-  }catch(e){ if(prog) prog.textContent="取得に失敗しました: "+(e&&e.message||e); }
-  finally{ lvBusy=false; }
+  }catch(e){
+    const msg=(e&&e.name==="AbortError") ? "時間がかかりすぎたため中断しました。もう一度押すと続きから計算します。" : ("取得に失敗しました: "+(e&&e.message||e));
+    if(prog) prog.textContent=msg;
+  }
+  finally{ clearTimeout(timer); lvBusy=false; }
 }
 function lvRender(){
   const j=lvData; if(!j) return;
@@ -2652,7 +2661,8 @@ function lvRender(){
   set("lvPerMin", s.gmvPerLiveMin!=null? yen(s.gmvPerLiveMin):"—");
   const pr=j.progress||{};
   const prog=document.getElementById("lvProgress");
-  if(prog) prog.textContent = `期間内 ${pr.totalLivesInRange||0}本 / 表示 ${pr.loaded||0}本 / 未計算 ${pr.pending||0}本 ー ${pr.hint||""}`;
+  const pd=(j.period||{});
+  if(prog) prog.textContent = `${pd.since||""}〜${pd.until||""} ／ 期間内 ${pr.totalLivesInRange||0}本 / 表示 ${pr.loaded||0}本 / 未計算 ${pr.pending||0}本 ー ${pr.hint||""}`;
 
   // 配信ごと
   const lb=document.getElementById("lvLiveBody");
