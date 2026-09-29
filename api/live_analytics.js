@@ -239,7 +239,7 @@ export default async function handler(req, res) {
         inLiveGmv: inLive,
         afterGmv: after,
         afterRate: (attributed > 0 && after != null) ? Math.round((after / attributed) * 1000) / 10 : null,
-        basis: hasScraped ? "画面(派生GMV)" : "API(直接GMV)",
+        basis: useScreen ? "画面(派生GMV)" : "API(直接GMV)",
         unitsTotal: num(s.units) || d.unitsTotal || 0,
         gmvPerMin: durationSec ? Math.round(attributed / (durationSec / 60)) : null,
         // APIの生値（突き合わせ用）
