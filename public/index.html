@@ -2660,11 +2660,13 @@ function lvRender(){
     const rows=(j.lives||[]).map(l=>{
       const diff=l.screenMinusApi;
       const diffTxt = diff==null? "—" : (diff>=0? `<span style="color:#2f6f4f">+${yen(diff)}</span>` : `<span style="color:#b4433a">${yen(diff)}</span>`);
-      const rate = (diff!=null && l.attributedGmv>0)? Math.round(diff/l.attributedGmv*1000)/10 : null;
+      // 比率は画面GMVを分母にする（APIの直接GMVを分母にすると後追いの割合が過大に出るため）
+      const base = l.screenGmv || l.attributedGmv;
+      const rate = (diff!=null && base>0)? Math.round(diff/base*1000)/10 : null;
       return `<tr>
         <td>${esc(l.date)}<div class="muted" style="font-size:11px">${esc(l.startTime)}〜${esc(l.endTime)}</div></td>
         <td style="text-align:right">${l.durationMin!=null?l.durationMin+"分":"—"}</td>
-        <td style="text-align:right">${yen(l.attributedGmv)}</td>
+        <td style="text-align:right">${l.screenGmv!=null? yen(l.screenGmv) : "<span class='muted'>—</span>"}</td>
         <td style="text-align:right">${l.apiDirectGmv!=null?yen(l.apiDirectGmv):"—"}</td>
         <td style="text-align:right">${diffTxt}${rate!=null?`<div class="muted" style="font-size:11px">${rate}%</div>`:""}</td>
         <td style="text-align:right">${l.unitsTotal||l.apiUnits||0}個</td>

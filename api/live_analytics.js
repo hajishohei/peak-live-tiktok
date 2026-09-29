@@ -247,6 +247,7 @@ export default async function handler(req, res) {
         // 画面の派生GMVとAPIの直接GMVの差。プラスなら「配信後に売れた分」と解釈できるが、
         // マイナスになる配信もあるため（指標定義が完全な包含関係ではない）、値をそのまま出して判断材料にする。
         screenMinusApi: (num(s.gmv) > 0 && d.attributedGmv != null) ? Math.round(num(s.gmv) - d.attributedGmv) : null,
+        screenGmv: num(s.gmv) || null,   // ブラウザ収集した画面の派生GMV（そのまま表示用）
         pins,                             // 紹介時間（ブラウザ収集）
         products: (d.products || []).slice(0, 50),
         minuteCount: d.minuteCount != null ? d.minuteCount : (d.minutes || []).length,
