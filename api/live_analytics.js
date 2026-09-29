@@ -12,7 +12,7 @@
 //   配信中GMV = 分単位データ(performance_per_minutes)の合計（＝配信時間内に発生した売上）
 //   LIVE帰属GMV = 商品別実績(products_performance)の合計（＝配信終了後の後追い購入も含む）
 //   後追いGMV  = LIVE帰属GMV − 配信中GMV
-import { callTT, getShop, loadLiveSessions } from "./query.js";
+import { callTT, getShop, loadLiveSessions, loadLiveCache, saveLiveCache } from "./query.js";
 
 function addDay(d) { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); }
 function num(v) { const n = Number(v); return isFinite(n) ? n : 0; }
@@ -197,9 +197,30 @@ export default async function handler(req, res) {
     //  - そのため、画面と数字を一致させたい指標（配信ごとのGMV・後追い比率）は
     //    ブラウザ収集したセッション値（gmv＝派生GMV、pinsの各5分バケットGMV）を優先する。
     //  - APIの値は内訳・商品別ランキング用として併記する（api* フィールド）。
+    // 1配信あたり数回のAPI呼び出しが要るため、終了済み配信の明細はBlobにキャッシュする。
+    // 未計算ぶんは1リクエストにつき maxCompute 件だけ処理し、残りは pending として返す
+    // （UI側が完了するまで再取得すれば、数回で全件そろう）。
+    const cache = await loadLiveCache();
+    let cacheDirty = false;
+    const maxCompute = Math.max(0, Math.min(8, Number(q.compute) != null && Number(q.compute) >= 0 ? Number(q.compute) : 4));
+    let computed = 0, pending = 0;
+
     const lives = [];
     for (const s of targets) {
-      const d = await fetchLiveDetail(env, shop, s.liveId, { withMinutes: true });
+      let d = cache[s.liveId];
+      if (!d) {
+        if (computed >= maxCompute) { pending++; continue; }
+        const full = await fetchLiveDetail(env, shop, s.liveId, { withMinutes: true });
+        // キャッシュには分単位の生データまでは持たない（サイズ削減のため集計値のみ）
+        d = {
+          attributedGmv: full.attributedGmv, inLiveGmv: full.inLiveGmv, unitsTotal: full.unitsTotal || 0,
+          minuteCount: (full.minutes || []).length,
+          products: (full.products || []).slice(0, 60),
+          productsError: full.productsError || null, minutesError: full.minutesError || null,
+          builtAt: Date.now(),
+        };
+        cache[s.liveId] = d; cacheDirty = true; computed++;
+      }
       const durationSec = num(s.durationSec);
       const pins = s.pins || [];
       const pinGmvSum = pins.reduce((a, p) => a + num(p.gmv), 0);
@@ -223,12 +244,16 @@ export default async function handler(req, res) {
         gmvPerMin: durationSec ? Math.round(attributed / (durationSec / 60)) : null,
         // APIの生値（突き合わせ用）
         apiDirectGmv: Math.round(d.attributedGmv), apiInLiveGmv: d.inLiveGmv, apiUnits: d.unitsTotal || 0,
+        // 画面の派生GMVとAPIの直接GMVの差。プラスなら「配信後に売れた分」と解釈できるが、
+        // マイナスになる配信もあるため（指標定義が完全な包含関係ではない）、値をそのまま出して判断材料にする。
+        screenMinusApi: (num(s.gmv) > 0 && d.attributedGmv != null) ? Math.round(num(s.gmv) - d.attributedGmv) : null,
         pins,                             // 紹介時間（ブラウザ収集）
-        products: d.products.slice(0, 50),
-        minuteCount: (d.minutes || []).length,
+        products: (d.products || []).slice(0, 50),
+        minuteCount: d.minuteCount != null ? d.minuteCount : (d.minutes || []).length,
         errors: [d.productsError, d.minutesError].filter(Boolean),
       });
     }
+    if (cacheDirty) { try { await saveLiveCache(cache); } catch (e) { /* 保存失敗しても表示は続ける */ } }
 
     // 商品別の横断集計（LIVE分）: 何回紹介され、累計何個・いくら売れたか
     const byProduct = {};
@@ -273,6 +298,8 @@ export default async function handler(req, res) {
         liveUnits: liveAgg.units,
         gmvPerLiveMin: liveAgg.durationSec ? Math.round(liveAgg.attributed / (liveAgg.durationSec / 60)) : null,
       },
+      progress: { totalLivesInRange: inRange.length, loaded: lives.length, pending, computedThisRequest: computed,
+                  hint: pending > 0 ? "未計算の配信があります。同じURLをもう一度開くと続きが計算されます（数回で全件そろいます）。" : "全配信の明細がそろっています。" },
       breakdown, lives, products,
       videos: videos && videos.ok ? { total: videos.totalCount, fetched: videos.fetched, gmvTotal: videos.gmvTotal, unitsTotal: videos.unitsTotal, byCreator: videos.byCreator, top: videos.videos.slice(0, 30) } : videos,
       sessionsStored: Object.keys(sessions || {}).length,

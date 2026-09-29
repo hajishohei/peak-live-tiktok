@@ -134,7 +134,7 @@ function matchBase(name, overrides, sku) {
   if (bb && bj >= 0.5) return { base: bb, source: "sd-auto", score: bj };
   return null;
 }
-export { matchBase, normName, getCostIndex, applyCosts, applyTTInventory, baseFromSku, callTT, isExpiredAuth, buildAndSaveSnapshot, getShop, getAllProducts, saveLiveDaily, loadLiveDaily, saveLiveDailyBulk, loadShippingMonthly, saveShippingMonthly, deleteShippingMonthly, loadLiveSessions, saveLiveSessions };
+export { matchBase, normName, getCostIndex, applyCosts, applyTTInventory, baseFromSku, callTT, isExpiredAuth, buildAndSaveSnapshot, getShop, getAllProducts, saveLiveDaily, loadLiveDaily, saveLiveDailyBulk, loadShippingMonthly, saveShippingMonthly, deleteShippingMonthly, loadLiveSessions, saveLiveSessions, loadLiveCache, saveLiveCache };
 function manualCostFor(name, manualCosts) {
   if (!manualCosts) return null;
   const v = manualCosts[name];
@@ -535,6 +535,30 @@ async function saveLiveSessions(recs) {
   await put(LIVE_SESSIONS_PATH, JSON.stringify({ updated: Date.now(), sessions }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
   liveSessionsMem = { sessions, _ts: Date.now() };
   return { saved, total: Object.keys(sessions).length };
+}
+
+// ===== LIVE明細キャッシュ（Blob） =====
+// 1配信あたり商品別＋分単位で数回のAPI呼び出しが必要で、35配信だと2分以上かかりVercelのタイムアウトに当たる。
+// 終了した配信の実績は基本的に変わらないため、liveIdごとに結果をキャッシュして2回目以降は即返す。
+const LIVE_CACHE_PATH = "tts-live-detail-cache.json";
+let liveCacheMem = null;
+async function loadLiveCache() {
+  if (liveCacheMem && Date.now() - liveCacheMem._ts < 5 * 60 * 1000) return liveCacheMem.items;
+  if (!blobConfigured()) return {};
+  try {
+    const { get } = await import("@vercel/blob");
+    const res = await get(LIVE_CACHE_PATH, { access: "private" });
+    if (!res || res.statusCode !== 200 || !res.stream) { liveCacheMem = { items: {}, _ts: Date.now() }; return {}; }
+    const j = JSON.parse(await new Response(res.stream).text());
+    liveCacheMem = { items: j.items || {}, _ts: Date.now() };
+    return liveCacheMem.items;
+  } catch (e) { return {}; }
+}
+async function saveLiveCache(items) {
+  const { put } = await import("@vercel/blob");
+  await put(LIVE_CACHE_PATH, JSON.stringify({ updated: Date.now(), items }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
+  liveCacheMem = { items, _ts: Date.now() };
+  return Object.keys(items).length;
 }
 
 // 一括保存: recMap = { "YYYY-MM-DD": {sec,hms,liveCount}, ... }。replaceMonth("YYYY-MM")指定でその月の既存を消してから入れる（誤データの入れ替え用）。

@@ -196,6 +196,7 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
     <div class="tab" data-tab="factor">要因分析</div>
     <div class="tab" data-tab="timing">タイミング</div>
     <div class="tab" data-tab="shift">配信シフト</div>
+    <div class="tab" data-tab="live">LIVE分析</div>
     <div class="tab" data-tab="action">アクション</div>
   </div>
 
@@ -607,6 +608,47 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
       <h2>📅 日別の配信効率（表示期間）</h2>
       <p class="desc">表示期間内で、配信した日ごとの「売上 ÷ 配信時間」。配信のある日だけ表示します。</p>
       <div id="shDayBody"><div class="muted">—</div></div>
+    </div>
+  </div>
+
+  <!-- ===== LIVE分析（TikTokのLIVE・動画の一元分析） ===== -->
+  <div class="panel" id="panel-live">
+    <div class="kpis" style="grid-template-columns:repeat(5,1fr)">
+      <div class="kpi"><div class="label">LIVE経由GMV</div><div class="val" id="lvGmvLive">—</div><div class="delta" id="lvGmvLiveSub">—</div></div>
+      <div class="kpi"><div class="label">動画経由GMV</div><div class="val" id="lvGmvVideo" style="color:#2f6f4f">—</div><div class="delta" id="lvGmvVideoSub">—</div></div>
+      <div class="kpi"><div class="label">商品カード経由GMV</div><div class="val" id="lvGmvCard">—</div><div class="delta" id="lvGmvCardSub">LIVE・動画を経由しない購入</div></div>
+      <div class="kpi"><div class="label">配信本数 / 合計時間</div><div class="val" id="lvCount">—</div><div class="delta" id="lvCountSub">—</div></div>
+      <div class="kpi"><div class="label">配信1分あたりGMV</div><div class="val" id="lvPerMin">—</div><div class="delta">LIVE帰属GMV ÷ 配信時間</div></div>
+    </div>
+
+    <div class="card">
+      <h2>📡 データの取得状況</h2>
+      <p class="desc">配信の明細（商品別・分単位）はTikTokのAPIを配信ごとに叩くため、1回の読み込みで数件ずつ計算して保存します。「未計算」が残っている間は再読み込みで続きが進みます。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <button class="primary" id="lvLoad">読み込む / 続きを計算</button>
+        <span class="muted" id="lvProgress">未読み込み</span>
+      </div>
+      <div class="muted" style="font-size:11px;line-height:1.6">
+        配信一覧（live_id・開始終了時刻・GMV）はTikTokのAPIでは取得できないため、毎朝のスケジュールタスクがセラーセンターの画面から収集して保存しています。
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🎬 配信ごとの実績</h2>
+      <p class="desc">画面の派生GMVとAPIの直接GMVは集計基準が異なります。差（画面−API）は「配信後に売れた分」の目安になりますが、マイナスになる配信もあるため参考値として見てください。</p>
+      <div id="lvLiveBody"><div class="muted">「読み込む」を押してください。</div></div>
+    </div>
+
+    <div class="card">
+      <h2>🏆 商品別ランキング（LIVE経由・期間合計）</h2>
+      <p class="desc">期間中の全配信を合算した商品別の実績です。紹介時間はスケジュールタスクがピン留め情報を収集した配信のみ集計されます。</p>
+      <div id="lvProdBody"><div class="muted">—</div></div>
+    </div>
+
+    <div class="card">
+      <h2>📹 動画別の実績</h2>
+      <p class="desc">ショート動画経由の売上です。自社アカウントとアフィリエイターを分けて集計しています。</p>
+      <div id="lvVideoBody"><div class="muted">—</div></div>
     </div>
   </div>
 
@@ -2570,6 +2612,118 @@ document.getElementById("actText").addEventListener("keydown",e=>{ if(e.key==="E
 document.querySelectorAll('#actFilter button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#actFilter button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); actFilter=b.dataset.f; renderActs(); }));
 renderActs();
 renderCmpList(); renderCmpPick(); renderCmpCompare();
+
+/* ===== LIVE分析タブ =====
+   /api/live_analytics?mode=overview から、流入元内訳(LIVE/動画/商品カード)・配信ごとの実績・
+   商品別ランキング・動画別実績をまとめて取得して描画する。
+   配信明細はサーバ側でBlobにキャッシュされ、1リクエストにつき数件ずつ計算される（タイムアウト回避）。 */
+let lvData=null, lvBusy=false;
+function lvPeriod(){
+  // 画面上部の期間指定があればそれに追随し、無ければ直近30日
+  const u=new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
+  const s=new Date(Date.now()+9*3600e3-29*86400e3).toISOString().slice(0,10);
+  return {since:s, until:u};
+}
+async function lvLoad(){
+  if(lvBusy) return; lvBusy=true;
+  const p=lvPeriod(), prog=document.getElementById("lvProgress");
+  if(prog) prog.textContent="読み込み中…";
+  try{
+    const r=await fetch(`/api/live_analytics?mode=overview&since=${p.since}&until=${p.until}&limit=40`,{credentials:"include"});
+    const j=await r.json();
+    if(!j.ok){ if(prog) prog.textContent="取得に失敗しました: "+(j.error||""); return; }
+    lvData=j; lvRender();
+  }catch(e){ if(prog) prog.textContent="取得に失敗しました: "+(e&&e.message||e); }
+  finally{ lvBusy=false; }
+}
+function lvRender(){
+  const j=lvData; if(!j) return;
+  const s=j.summary||{}, b=j.breakdown||{};
+  const set=(id,v)=>{const el=document.getElementById(id); if(el) el.textContent=v;};
+  const sh=(b.share||{});
+  set("lvGmvLive", b.ok? yen(b.gmv.live):"—");
+  set("lvGmvLiveSub", b.ok? `全体の${sh.live}%（ショップ全体 ${yen(b.gmv.total)}）`:"—");
+  set("lvGmvVideo", b.ok? yen(b.gmv.video):"—");
+  set("lvGmvVideoSub", b.ok? `全体の${sh.video}%`:"—");
+  set("lvGmvCard", b.ok? yen(b.gmv.productCard):"—");
+  set("lvGmvCardSub", b.ok? `全体の${sh.productCard}%`:"LIVE・動画を経由しない購入");
+  set("lvCount", (s.liveCount||0)+"本");
+  set("lvCountSub", `合計 ${Math.floor((s.liveTotalMin||0)/60)}時間${(s.liveTotalMin||0)%60}分 / 販売 ${s.liveUnits||0}個`);
+  set("lvPerMin", s.gmvPerLiveMin!=null? yen(s.gmvPerLiveMin):"—");
+  const pr=j.progress||{};
+  const prog=document.getElementById("lvProgress");
+  if(prog) prog.textContent = `期間内 ${pr.totalLivesInRange||0}本 / 表示 ${pr.loaded||0}本 / 未計算 ${pr.pending||0}本 ー ${pr.hint||""}`;
+
+  // 配信ごと
+  const lb=document.getElementById("lvLiveBody");
+  if(lb){
+    const rows=(j.lives||[]).map(l=>{
+      const diff=l.screenMinusApi;
+      const diffTxt = diff==null? "—" : (diff>=0? `<span style="color:#2f6f4f">+${yen(diff)}</span>` : `<span style="color:#b4433a">${yen(diff)}</span>`);
+      const rate = (diff!=null && l.attributedGmv>0)? Math.round(diff/l.attributedGmv*1000)/10 : null;
+      return `<tr>
+        <td>${esc(l.date)}<div class="muted" style="font-size:11px">${esc(l.startTime)}〜${esc(l.endTime)}</div></td>
+        <td style="text-align:right">${l.durationMin!=null?l.durationMin+"分":"—"}</td>
+        <td style="text-align:right">${yen(l.attributedGmv)}</td>
+        <td style="text-align:right">${l.apiDirectGmv!=null?yen(l.apiDirectGmv):"—"}</td>
+        <td style="text-align:right">${diffTxt}${rate!=null?`<div class="muted" style="font-size:11px">${rate}%</div>`:""}</td>
+        <td style="text-align:right">${l.unitsTotal||l.apiUnits||0}個</td>
+        <td style="text-align:right">${(l.viewers||0).toLocaleString("ja-JP")}</td>
+        <td style="text-align:right">${l.gmvPerMin!=null?yen(l.gmvPerMin):"—"}</td>
+        <td style="text-align:right">${(l.pins||[]).length? (l.pins||[]).length+"件":"<span class='muted'>未収集</span>"}</td>
+      </tr>`;
+    }).join("");
+    lb.innerHTML = rows? `<table><thead><tr>
+      <th>配信日</th><th style="text-align:right">配信時間</th><th style="text-align:right">画面GMV</th>
+      <th style="text-align:right">API直接GMV</th><th style="text-align:right">差（後追いの目安）</th>
+      <th style="text-align:right">販売数</th><th style="text-align:right">視聴者</th><th style="text-align:right">1分あたり</th><th style="text-align:right">紹介時間</th>
+      </tr></thead><tbody>${rows}</tbody></table>` : `<div class="muted">配信データがありません。</div>`;
+  }
+
+  // 商品別
+  const pb=document.getElementById("lvProdBody");
+  if(pb){
+    const rows=(j.products||[]).slice(0,40).map((p,i)=>`<tr>
+      <td style="text-align:right">${i+1}</td>
+      <td>${esc(p.name||p.id)}</td>
+      <td style="text-align:right">${p.lives}回</td>
+      <td style="text-align:right">${yen(p.gmv)}</td>
+      <td style="text-align:right">${p.unitsSold}個</td>
+      <td style="text-align:right">${(p.impressions||0).toLocaleString("ja-JP")}</td>
+      <td style="text-align:right">${p.addToCart||0}</td>
+      <td style="text-align:right">${p.pinMinutes? p.pinMinutes+"分":"<span class='muted'>—</span>"}</td>
+      <td style="text-align:right">${p.gmvPerPinMin!=null? yen(p.gmvPerPinMin):"<span class='muted'>—</span>"}</td>
+    </tr>`).join("");
+    pb.innerHTML = rows? `<table><thead><tr>
+      <th style="text-align:right">#</th><th>商品</th><th style="text-align:right">登場配信数</th><th style="text-align:right">GMV</th>
+      <th style="text-align:right">販売数</th><th style="text-align:right">表示回数</th><th style="text-align:right">カート追加</th>
+      <th style="text-align:right">紹介時間</th><th style="text-align:right">1分あたりGMV</th>
+      </tr></thead><tbody>${rows}</tbody></table>` : `<div class="muted">—</div>`;
+  }
+
+  // 動画別
+  const vb=document.getElementById("lvVideoBody");
+  if(vb){
+    const v=j.videos||{};
+    if(v && v.byCreator){
+      const cre=(v.byCreator||[]).slice(0,10).map(c=>`<tr>
+        <td>@${esc(c.username)}</td><td style="text-align:right">${c.videos}本</td>
+        <td style="text-align:right">${yen(c.gmv)}</td><td style="text-align:right">${c.unitsSold}個</td>
+        <td style="text-align:right">${(c.views||0).toLocaleString("ja-JP")}</td></tr>`).join("");
+      const top=(v.top||[]).slice(0,15).map(t=>`<tr>
+        <td>${esc((t.title||"").slice(0,60))}<div class="muted" style="font-size:11px">@${esc(t.username)} / ${esc((t.postedAt||"").slice(0,10))}</div></td>
+        <td style="text-align:right">${yen(t.gmv)}</td><td style="text-align:right">${t.unitsSold}個</td>
+        <td style="text-align:right">${(t.views||0).toLocaleString("ja-JP")}</td>
+        <td style="text-align:right">${t.ctr!=null? (Math.round(t.ctr*10000)/100)+"%":"—"}</td>
+        <td>${esc(((t.products||[])[0]||{}).name||"")}</td></tr>`).join("");
+      vb.innerHTML = `<div style="margin-bottom:6px;font-weight:600;font-size:13px">投稿者別（動画 ${v.fetched||0}本 / 合計 ${yen(v.gmvTotal||0)}）</div>
+        <table><thead><tr><th>アカウント</th><th style="text-align:right">本数</th><th style="text-align:right">GMV</th><th style="text-align:right">販売数</th><th style="text-align:right">視聴</th></tr></thead><tbody>${cre}</tbody></table>
+        <div style="margin:14px 0 6px;font-weight:600;font-size:13px">売上上位の動画</div>
+        <table><thead><tr><th>動画</th><th style="text-align:right">GMV</th><th style="text-align:right">販売数</th><th style="text-align:right">視聴</th><th style="text-align:right">CTR</th><th>商品</th></tr></thead><tbody>${top}</tbody></table>`;
+    } else { vb.innerHTML=`<div class="muted">動画データを取得できませんでした。</div>`; }
+  }
+}
+(function(){ const b=document.getElementById("lvLoad"); if(b) b.addEventListener("click",lvLoad); })();
 
 loadAll();
 </script>
