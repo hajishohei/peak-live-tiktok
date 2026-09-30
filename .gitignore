@@ -5,6 +5,10 @@ node_modules
 !.env.example
 REVIEW_BUNDLE.md
 
+# 収集スクリプトのブラウザプロファイル（TikTokのログインセッションを含むため絶対にコミットしない）
+scripts/.browser-profile/
+scripts/collect_lives.log
+
 # 動画・大容量メディア（このリポジトリはコード管理用。誤って紛れ込んだ場合も追跡しない）
 *.webm
 *.mp4
