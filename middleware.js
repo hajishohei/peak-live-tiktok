@@ -6,8 +6,13 @@
 //   * /api/callback   … TikTok OAuth のリダイレクト先（外部サービスはBasic認証を通せない）
 //   * /favicon.svg    … 認証前のブラウザ挙動での余計なプロンプト防止
 export const config = {
-  matcher: ["/((?!api/live_ingest|api/callback|favicon.svg).*)"],
+  matcher: ["/((?!api/live_ingest|api/live_sessions|api/callback|favicon.svg).*)"],
 };
+// api/live_sessions を除外している理由:
+//   ローカルの収集スクリプト(scripts/collect_lives.mjs)が叩くため。Basic認証だと
+//   スクリプトにダッシュボードのパスワードを持たせる必要があり、社内共有している
+//   認証情報をローカルの設定ファイルに書くことになるので避けた。
+//   代わりに COLLECT_KEY（このスクリプト専用の合言葉）で保護している。
 
 export default function middleware(req) {
   const user = process.env.DASH_USER || "";

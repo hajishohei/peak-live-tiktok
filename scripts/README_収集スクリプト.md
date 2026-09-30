@@ -15,14 +15,20 @@ npm install playwright
 npx playwright install chromium
 ```
 
-### 1-2. ダッシュボードのBasic認証を環境変数に入れる
+### 1-2. スクリプト専用の合言葉を決める
 
-Vercelの環境変数に設定してある `DASH_USER` / `DASH_PASS` と同じ値を使います。
-`~/.zshrc` に書いておくと毎回入力せずに済みます。
+ダッシュボードのBasic認証（DASH_USER / DASH_PASS）は社内で共有しているものなので、
+スクリプトには持たせません。代わりに `COLLECT_KEY` という専用の合言葉を1つ決めて、
+**Vercelとローカルの両方に同じ値**を設定します。値は何でも構いません（推測されにくい文字列にしてください）。
+
+**Vercel側**: vercel.com → プロジェクト peak-live-tiktok → Settings → Environment Variables
+→ Add Environment Variable → Key に `COLLECT_KEY`、Value に決めた文字列 → Production と Preview の両方にチェック → Save
+→ 保存後、Deployments から最新のデプロイを Redeploy（環境変数は再デプロイしないと反映されません）
+
+**ローカル側**:
 
 ```
-echo 'export DASH_USER="（ユーザー名）"' >> ~/.zshrc
-echo 'export DASH_PASS="（パスワード）"' >> ~/.zshrc
+echo 'export COLLECT_KEY="決めた文字列"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -91,7 +97,7 @@ node scripts/collect_lives.mjs --pins 40
 launchctl load ~/Library/LaunchAgents/com.harbor.bclive.collect.plist
 ```
 
-`DASH_USER` / `DASH_PASS` は `~/.zshrc` に書いてあれば `zsh -lc` 経由で読まれます。
+`COLLECT_KEY` は `~/.zshrc` に書いてあれば `zsh -lc` 経由で読まれます。
 
 ---
 
@@ -102,6 +108,7 @@ launchctl load ~/Library/LaunchAgents/com.harbor.bclive.collect.plist
 | メッセージ | 意味 | 対応 |
 |---|---|---|
 | TikTokのログインが切れています | セッション期限切れ | `--login` で入り直す |
+| 合言葉(COLLECT_KEY)が違います | VercelとローカルでCOLLECT_KEYが不一致 | 両方を同じ値にしてVercelを再デプロイ |
 | LIVE一覧が0件でした | 画面構造の変更 | Claudeに調査を依頼 |
 | グラフの幅が想定外です | チャートの描画方法の変更 | 同上 |
 | 紹介時間を1件も取得できませんでした | ツールチップの構造変更 | 同上 |

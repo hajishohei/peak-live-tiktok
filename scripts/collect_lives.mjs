@@ -18,7 +18,9 @@
  *   バックフィルを多めに回す:      node scripts/collect_lives.mjs --pins 10
  *
  * 必要な環境変数:
- *   DASH_USER / DASH_PASS   ダッシュボードのBasic認証（Vercelに設定しているものと同じ）
+ *   COLLECT_KEY   このスクリプト専用の合言葉。Vercelの環境変数にも同じ値を設定しておく。
+ *                 （ダッシュボードのBasic認証は社内共有しているものなので、
+ *                   スクリプトには持たせず専用の鍵を使う方針）
  *
  * 補足:
  *   ブラウザのプロファイルは scripts/.browser-profile に保存され、TikTokのログインが維持されます。
@@ -32,6 +34,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROFILE_DIR = path.join(__dirname, ".browser-profile");
 const LOG_PATH = path.join(__dirname, "collect_lives.log");
+const COLLECT_KEY = process.env.COLLECT_KEY || "";
 
 const DASH = "https://peak-live-tiktok.vercel.app";
 const LIST_URL = "https://seller-jp.tiktok.com/compass/live-analysis/live-details?shop_region=JP";
@@ -144,17 +147,16 @@ function toSession(r, pins) {
 
 // ---------------------------------------------------------------------------
 async function main() {
-  const user = process.env.DASH_USER || "";
-  const pass = process.env.DASH_PASS || "";
-  if (!LOGIN_MODE && (!user || !pass)) {
-    say("環境変数 DASH_USER / DASH_PASS が未設定です。ダッシュボードのBasic認証に必要です。");
+  if (!LOGIN_MODE && !COLLECT_KEY) {
+    say("環境変数 COLLECT_KEY が未設定です。");
+    say("  Vercelの環境変数に COLLECT_KEY を追加し、同じ値を ~/.zshrc にも書いてください。");
+    say("  例: echo 'export COLLECT_KEY=\"好きな文字列\"' >> ~/.zshrc && source ~/.zshrc");
     process.exitCode = 1; return;
   }
 
   const ctx = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: !LOGIN_MODE,
     viewport: { width: 1600, height: 1000 },
-    httpCredentials: user ? { username: user, password: pass } : undefined,
     locale: "ja-JP",
     timezoneId: "Asia/Tokyo",
   });
@@ -197,14 +199,12 @@ async function main() {
     say(`LIVE一覧 ${lives.length}件を取得しました（${lives[lives.length - 1] ? new Date((lives[lives.length - 1].start + 9 * 3600) * 1000).toISOString().slice(0, 10) : "?"} 〜 ${new Date((lives[0].start + 9 * 3600) * 1000).toISOString().slice(0, 10)}）`);
 
     // --- 2. 既存セッションを読んで、紹介時間を保持したまま投入 ---
-    const cur = await (await fetch(`${DASH}/api/live_sessions?full=1`, {
-      headers: { Authorization: "Basic " + Buffer.from(`${user}:${pass}`).toString("base64") },
-    })).json();
+    const cur = await dashFetch(`${DASH}/api/live_sessions?full=1`);
     const pinMap = {};
     for (const s of cur.sessions || []) if ((s.pins || []).length) pinMap[s.liveId] = s.pins;
 
     const sessions = lives.map((r) => toSession(r, pinMap[r.liveId] || []));
-    const postRes = await postSessions(sessions, user, pass);
+    const postRes = await postSessions(sessions);
     say(`配信一覧を投入しました: saved=${postRes.saved} total=${postRes.totalSessions}`);
 
     // --- 3. 紹介時間が未収集の配信を処理 ---
@@ -233,7 +233,7 @@ async function main() {
         if (res.error) { say(`  ${t.date} ${t.startTime} (${t.liveId}): ${res.error}`); continue; }
         const pins = parsePins(res.lines || []);
         if (!pins.length) { say(`  ${t.date} ${t.startTime} (${t.liveId}): ピン留めを取得できませんでした`); continue; }
-        await postSessions([{ ...t, pins }], user, pass);
+        await postSessions([{ ...t, pins }]);
         okCount++;
         say(`  ${t.date} ${t.startTime} (${t.liveId}): ${pins.length}区間を収集`);
       } catch (e) {
@@ -242,9 +242,7 @@ async function main() {
     }
 
     // --- 4. 確認 ---
-    const after = await (await fetch(`${DASH}/api/live_sessions`, {
-      headers: { Authorization: "Basic " + Buffer.from(`${user}:${pass}`).toString("base64") },
-    })).json();
+    const after = await dashFetch(`${DASH}/api/live_sessions`);
     const withPins = (after.sessions || []).filter((s) => s.pinCount > 0).length;
     say(`完了: 保存 ${after.total}配信 / 紹介時間あり ${withPins}配信 / 今回新規 ${okCount}件`);
     if (okCount === 0 && targets.length > 0) {
@@ -257,16 +255,35 @@ async function main() {
   }
 }
 
-async function postSessions(sessions, user, pass) {
-  const r = await fetch(`${DASH}/api/live_sessions`, {
+// ダッシュボードAPIの呼び出し。認証失敗などでJSON以外が返ることがあるため、
+// いきなり .json() せず、状態を見てから読む（そうしないと原因の分からないパースエラーになる）。
+async function dashFetch(url, init = {}) {
+  const u = new URL(url);
+  u.searchParams.set("key", COLLECT_KEY);
+  const r = await fetch(u.toString(), init);
+  const text = await r.text();
+  if (/認証が必要です/.test(text)) {
+    throw new Error("Basic認証で弾かれました。middleware.js の除外設定がデプロイされているか確認してください。");
+  }
+  if (!r.ok) throw new Error(`APIエラー ${r.status}: ${text.slice(0, 200)}`);
+  let j;
+  try { j = JSON.parse(text); }
+  catch (e) { throw new Error(`JSONとして読めませんでした: ${text.slice(0, 200)}`); }
+  if (j && j.ok === false && /合言葉/.test(j.error || "")) {
+    throw new Error(
+      "合言葉(COLLECT_KEY)が違います。\n" +
+      "  Vercelの環境変数 COLLECT_KEY と、ローカルの COLLECT_KEY が同じ値か確認してください。"
+    );
+  }
+  return j;
+}
+
+async function postSessions(sessions) {
+  const j = await dashFetch(`${DASH}/api/live_sessions`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Basic " + Buffer.from(`${user}:${pass}`).toString("base64"),
-    },
-    body: JSON.stringify({ sessions }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: COLLECT_KEY, sessions }),
   });
-  const j = await r.json();
   if (!j.ok) throw new Error("投入に失敗: " + (j.error || JSON.stringify(j)));
   return j;
 }
