@@ -10,6 +10,7 @@ import crypto from "crypto";
 import { SD_MASTER } from "../lib/sd_costs.js";
 import { LIVE_HOURS } from "../lib/live_hours.js";
 import { PURCHASES, PURCHASES_META } from "../lib/purchases.js";
+import { NAME_OVERRIDES } from "../lib/name_overrides.js";
 
 const API_BASE = "https://open-api.tiktokglobalshop.com";
 
@@ -105,6 +106,12 @@ function matchBase(name, overrides, sku) {
     const v = overrides[name];
     if (!v || v === "NONE") return { base: null, source: "manual-none", score: 1 };
     if (idx.byBase.has(v)) return { base: v, source: "manual", score: 1 };
+  }
+  // Jev(TypeSafe)で判定した対応表。人が画面から入れた手動指定の次に優先する。
+  // scripts/match_costs_jev.mjs が生成し、確信度が高いものだけが入っている。
+  if (Object.prototype.hasOwnProperty.call(NAME_OVERRIDES, name)) {
+    const v = NAME_OVERRIDES[name];
+    if (v && idx.byBase.has(v)) return { base: v, source: "jev", score: 0.99 };
   }
   // seller_sku に SD品番が含まれる場合は最優先（最も確実）
   const skuBase = baseFromSku(sku);

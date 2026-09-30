@@ -806,6 +806,7 @@ function costSrcBadge(src){
   // 3分類でシンプルに: SD実績原価 / 手動入力 / 推定
   let label='推定', col='#d4861f';
   if(src==='manual-cost'){ label='手動'; col='#2f6f4f'; }
+  else if(src==='jev'){ label='AI判定'; col='#3f6fb0'; }  // Jevで名寄せしたぶん（確信度の高いものだけ採用）
   else if(src==='manual'||(src&&src.indexOf('sd')===0)){ label='SD原価'; col='#2f6f4f'; }
   else if(src==='manual-none'){ label='0円'; col='#9a9a9a'; }
   return `<span style="font-size:10px;font-weight:700;color:#fff;background:${col};border-radius:5px;padding:1px 6px;white-space:nowrap">${label}</span>`;
