@@ -8,5 +8,9 @@
   },
   "dependencies": {
     "@vercel/blob": "^2.5.0"
+  },
+  "devDependencies": {
+    "_comment": "playwrightはローカルの収集スクリプト(scripts/collect_lives.mjs)専用。Vercelの本番ビルドには不要なのでdevDependenciesに置く",
+    "playwright": "^1.63.0"
   }
 }
