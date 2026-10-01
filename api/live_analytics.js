@@ -257,21 +257,49 @@ export default async function handler(req, res) {
     if (cacheDirty) { try { await saveLiveCache(cache); } catch (e) { /* 保存失敗しても表示は続ける */ } }
 
     // 商品別の横断集計（LIVE分）: 何回紹介され、累計何個・いくら売れたか
+    // あわせて週別・月別の内訳も作る（同じ商品でも時期によって売れ方が変わるため、
+    // 「いま伸びているのか・落ちているのか」を商品ごとに見られるようにする）
+    const weekKey = (d) => {            // 月曜はじまりの週。キーはその週の月曜の日付
+      const x = new Date(d + "T00:00:00Z");
+      const dow = (x.getUTCDay() + 6) % 7; // 月=0
+      x.setUTCDate(x.getUTCDate() - dow);
+      return x.toISOString().slice(0, 10);
+    };
+    const bucketAdd = (store, key, p, mins) => {
+      if (!store[key]) store[key] = { key, gmv: 0, unitsSold: 0, pinMinutes: 0, lives: 0 };
+      const b = store[key];
+      b.gmv += p.gmv; b.unitsSold += p.unitsSold; b.pinMinutes += mins; b.lives++;
+    };
     const byProduct = {};
     for (const lv of lives) {
       const pinMin = {};
       for (const p of lv.pins || []) { const k = String(p.productName || ""); pinMin[k] = (pinMin[k] || 0) + num(p.minutes); }
+      const wk = lv.date ? weekKey(lv.date) : "", mo = (lv.date || "").slice(0, 7);
       for (const p of lv.products) {
-        if (!byProduct[p.id]) byProduct[p.id] = { id: p.id, name: p.name, lives: 0, gmv: 0, unitsSold: 0, impressions: 0, addToCart: 0, pinMinutes: 0 };
+        if (!byProduct[p.id]) byProduct[p.id] = { id: p.id, name: p.name, lives: 0, gmv: 0, unitsSold: 0, impressions: 0, addToCart: 0, pinMinutes: 0, _w: {}, _m: {} };
         const o = byProduct[p.id];
+        const mins = pinMin[p.name] || 0;
         o.lives++; o.gmv += p.gmv; o.unitsSold += p.unitsSold; o.impressions += p.impressions; o.addToCart += p.addToCart;
-        if (pinMin[p.name]) o.pinMinutes += pinMin[p.name];
+        o.pinMinutes += mins;
+        if (wk) bucketAdd(o._w, wk, p, mins);
+        if (mo) bucketAdd(o._m, mo, p, mins);
       }
     }
-    const products = Object.values(byProduct).sort((a, b) => b.gmv - a.gmv).map((p) => ({
-      ...p, gmv: Math.round(p.gmv),
-      gmvPerPinHour: p.pinMinutes > 0 ? Math.round(p.gmv / (p.pinMinutes / 60)) : null,
-    }));
+    const finishBuckets = (store) => Object.values(store)
+      .sort((a, b) => String(a.key).localeCompare(String(b.key)))
+      .map((b) => ({
+        key: b.key, gmv: Math.round(b.gmv), unitsSold: b.unitsSold, pinMinutes: b.pinMinutes, lives: b.lives,
+        gmvPerPinHour: b.pinMinutes > 0 ? Math.round(b.gmv / (b.pinMinutes / 60)) : null,
+      }));
+    const products = Object.values(byProduct).sort((a, b) => b.gmv - a.gmv).map((p) => {
+      const { _w, _m, ...rest } = p;
+      return {
+        ...rest, gmv: Math.round(p.gmv),
+        gmvPerPinHour: p.pinMinutes > 0 ? Math.round(p.gmv / (p.pinMinutes / 60)) : null,
+        byWeek: finishBuckets(_w),
+        byMonth: finishBuckets(_m),
+      };
+    });
 
     // 後追い比率は「配信中/後追いが両方出せた配信」だけで集計する（片方欠けた配信を混ぜると率が狂うため）
     const liveAgg = lives.reduce((a, l) => {

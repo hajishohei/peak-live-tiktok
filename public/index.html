@@ -614,11 +614,15 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
   <!-- ===== LIVE分析（TikTokのLIVE・動画の一元分析） ===== -->
   <div class="panel" id="panel-live">
     <div class="kpis" style="grid-template-columns:repeat(5,1fr)">
+      <div class="kpi" style="border-color:#c9d9ee;background:linear-gradient(180deg,#f7fbff,#fff)">
+        <div class="label" style="color:#3f6fb0">配信1時間あたりGMV</div>
+        <div class="val" id="lvPerMin" style="font-size:24px;color:#2b4f80">—</div>
+        <div class="delta" id="lvPerHourSub">LIVE帰属GMV ÷ 配信時間</div>
+      </div>
       <div class="kpi"><div class="label">LIVE経由GMV</div><div class="val" id="lvGmvLive">—</div><div class="delta" id="lvGmvLiveSub">—</div></div>
       <div class="kpi"><div class="label">動画経由GMV</div><div class="val" id="lvGmvVideo" style="color:#2f6f4f">—</div><div class="delta" id="lvGmvVideoSub">—</div></div>
       <div class="kpi"><div class="label">商品カード経由GMV</div><div class="val" id="lvGmvCard">—</div><div class="delta" id="lvGmvCardSub">LIVE・動画を経由しない購入</div></div>
       <div class="kpi"><div class="label">配信本数 / 合計時間</div><div class="val" id="lvCount">—</div><div class="delta" id="lvCountSub">—</div></div>
-      <div class="kpi"><div class="label">配信1時間あたりGMV</div><div class="val" id="lvPerMin">—</div><div class="delta">LIVE帰属GMV ÷ 配信時間</div></div>
     </div>
 
     <div class="card">
@@ -641,8 +645,28 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
 
     <div class="card">
       <h2>🏆 商品別ランキング（LIVE経由・期間合計）</h2>
-      <p class="desc">期間中の全配信を合算した商品別の実績です。紹介時間はスケジュールタスクがピン留め情報を収集した配信のみ集計されます。</p>
+      <p class="desc">期間中の全配信を合算した商品別の実績です。<b>1時間あたりGMV</b>は「その商品を紹介していた時間に対して、いくら売れたか」を表します。紹介時間の長短に左右されないので、商品そのものの強さを比べられます。</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px 12px;background:#f7fbff;border:1px solid #c9d9ee;border-radius:10px">
+        <span style="font-size:12px;font-weight:600;color:#2b4f80">1時間あたりGMVの目標</span>
+        <input type="number" id="lvTarget" step="1000" min="0" style="width:110px" placeholder="30000">
+        <span style="font-size:12px;color:#7a7a7a">円/時</span>
+        <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
+          <input type="checkbox" id="lvOnlyHit" style="width:auto"> 達成した商品だけ表示
+        </label>
+        <span id="lvHitSummary" class="muted" style="font-size:12px"></span>
+      </div>
       <div id="lvProdBody"><div class="muted">—</div></div>
+    </div>
+
+    <div class="card">
+      <h2>📈 商品ごとの期間推移</h2>
+      <p class="desc">同じ商品でも時期によって売れ方が変わります。上の表で商品名をクリックすると、その商品の週別・月別の推移がここに出ます。伸びている商品と落ちている商品を見分けるのに使ってください。</p>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <button class="mini" id="lvTrendWeek">週別</button>
+        <button class="mini" id="lvTrendMonth">月別</button>
+        <span class="muted" id="lvTrendName" style="font-size:12px">商品が選ばれていません</span>
+      </div>
+      <div id="lvTrendBody"><div class="muted">上の商品別ランキングから商品名をクリックしてください。</div></div>
     </div>
 
     <div class="card">
@@ -2660,6 +2684,17 @@ function lvRender(){
   set("lvCount", (s.liveCount||0)+"本");
   set("lvCountSub", `合計 ${Math.floor((s.liveTotalMin||0)/60)}時間${(s.liveTotalMin||0)%60}分 / 販売 ${s.liveUnits||0}個`);
   set("lvPerMin", s.gmvPerLiveHour!=null? yen(s.gmvPerLiveHour):"—");
+  // 目標を入れていれば、全体平均が達しているかを一目で出す
+  (function(){
+    const el=document.getElementById("lvPerHourSub"); if(!el) return;
+    const tg=lvTarget();
+    if(tg>0 && s.gmvPerLiveHour!=null){
+      const d=s.gmvPerLiveHour-tg;
+      el.innerHTML = d>=0
+        ? `目標${yen(tg)}に対し <span style="color:#2f6f4f;font-weight:700">+${yen(d)}</span> 達成`
+        : `目標${yen(tg)}に対し <span style="color:#b4433a;font-weight:700">${yen(d)}</span> 未達`;
+    } else { el.textContent="LIVE帰属GMV ÷ 配信時間"; }
+  })();
   const pr=j.progress||{};
   const prog=document.getElementById("lvProgress");
   const pd=(j.period||{});
@@ -2694,25 +2729,7 @@ function lvRender(){
   }
 
   // 商品別
-  const pb=document.getElementById("lvProdBody");
-  if(pb){
-    const rows=(j.products||[]).slice(0,40).map((p,i)=>`<tr>
-      <td style="text-align:right">${i+1}</td>
-      <td>${esc(p.name||p.id)}</td>
-      <td style="text-align:right">${p.lives}回</td>
-      <td style="text-align:right">${yen(p.gmv)}</td>
-      <td style="text-align:right">${p.unitsSold}個</td>
-      <td style="text-align:right">${(p.impressions||0).toLocaleString("ja-JP")}</td>
-      <td style="text-align:right">${p.addToCart||0}</td>
-      <td style="text-align:right">${p.pinMinutes? p.pinMinutes+"分":"<span class='muted'>—</span>"}</td>
-      <td style="text-align:right">${p.gmvPerPinHour!=null? yen(p.gmvPerPinHour):"<span class='muted'>—</span>"}</td>
-    </tr>`).join("");
-    pb.innerHTML = rows? `<table><thead><tr>
-      <th style="text-align:right">#</th><th>商品</th><th style="text-align:right">登場配信数</th><th style="text-align:right">GMV</th>
-      <th style="text-align:right">販売数</th><th style="text-align:right">表示回数</th><th style="text-align:right">カート追加</th>
-      <th style="text-align:right">紹介時間</th><th style="text-align:right">1時間あたりGMV</th>
-      </tr></thead><tbody>${rows}</tbody></table>` : `<div class="muted">—</div>`;
-  }
+  lvRenderProducts();
 
   // 動画別
   const vb=document.getElementById("lvVideoBody");
@@ -2736,7 +2753,98 @@ function lvRender(){
     } else { vb.innerHTML=`<div class="muted">動画データを取得できませんでした。</div>`; }
   }
 }
-(function(){ const b=document.getElementById("lvLoad"); if(b) b.addEventListener("click",lvLoad); })();
+/* --- 商品別ランキング（目標値つき）と期間推移 --- */
+const LV_TARGET_KEY="peak_lv_target_gmv_per_hour";
+let lvTrendMode="week", lvTrendPid=null;
+function lvTarget(){ const v=Number(localStorage.getItem(LV_TARGET_KEY)||0); return isFinite(v)&&v>0? v:0; }
+function lvRenderProducts(){
+  const j=lvData, pb=document.getElementById("lvProdBody"); if(!j||!pb) return;
+  const tgt=lvTarget();
+  const onlyHit=!!(document.getElementById("lvOnlyHit")||{}).checked;
+  const all=(j.products||[]);
+  // 目標は「1時間あたりGMV」で判定する。紹介時間が無い商品は判定対象外（—扱い）。
+  const judged=all.filter(p=>p.gmvPerPinHour!=null);
+  const hit=judged.filter(p=>tgt>0 && p.gmvPerPinHour>=tgt);
+  const list=(onlyHit&&tgt>0? hit:all).slice(0,60);
+
+  const sum=document.getElementById("lvHitSummary");
+  if(sum){
+    sum.textContent = tgt>0
+      ? `達成 ${hit.length}商品 / 判定対象 ${judged.length}商品（紹介時間が無い ${all.length-judged.length}商品は対象外）`
+      : `目標を入れると達成商品がわかります（判定できるのは紹介時間のある ${judged.length}商品）`;
+  }
+
+  const rows=list.map((p,i)=>{
+    const ok = tgt>0 && p.gmvPerPinHour!=null && p.gmvPerPinHour>=tgt;
+    const perH = p.gmvPerPinHour!=null
+      ? `<span style="font-weight:700;color:${ok?"#2f6f4f":(tgt>0?"#b4433a":"#333")}">${yen(p.gmvPerPinHour)}</span>${ok?' <span style="font-size:10px;font-weight:700;color:#fff;background:#2f6f4f;border-radius:5px;padding:1px 5px">達成</span>':''}`
+      : "<span class='muted'>—</span>";
+    return `<tr${ok?' style="background:#f3faf6"':''}>
+      <td style="text-align:right">${i+1}</td>
+      <td><a href="#" data-lvpid="${esc(p.id)}" style="color:#2b4f80;text-decoration:none;border-bottom:1px dotted #9bb6d8">${esc(p.name||p.id)}</a></td>
+      <td style="text-align:right">${p.gmvPerPinHour!=null?perH:perH}</td>
+      <td style="text-align:right">${p.pinMinutes? p.pinMinutes+"分":"<span class='muted'>—</span>"}</td>
+      <td style="text-align:right">${yen(p.gmv)}</td>
+      <td style="text-align:right">${p.unitsSold}個</td>
+      <td style="text-align:right">${p.lives}回</td>
+      <td style="text-align:right">${(p.impressions||0).toLocaleString("ja-JP")}</td>
+      <td style="text-align:right">${p.addToCart||0}</td>
+    </tr>`;}).join("");
+
+  pb.innerHTML = rows? `<table><thead><tr>
+    <th style="text-align:right">#</th><th>商品（クリックで推移）</th>
+    <th style="text-align:right">1時間あたりGMV</th><th style="text-align:right">紹介時間</th>
+    <th style="text-align:right">GMV</th><th style="text-align:right">販売数</th><th style="text-align:right">登場配信数</th>
+    <th style="text-align:right">表示回数</th><th style="text-align:right">カート追加</th>
+    </tr></thead><tbody>${rows}</tbody></table>` : `<div class="muted">該当する商品がありません。</div>`;
+
+  pb.querySelectorAll("[data-lvpid]").forEach(a=>a.addEventListener("click",e=>{
+    e.preventDefault(); lvTrendPid=a.dataset.lvpid; lvRenderTrend();
+    const el=document.getElementById("lvTrendBody"); if(el) try{el.scrollIntoView({behavior:"smooth",block:"center"});}catch(err){}
+  }));
+}
+function lvRenderTrend(){
+  const j=lvData, tb=document.getElementById("lvTrendBody"); if(!j||!tb) return;
+  const p=(j.products||[]).find(x=>String(x.id)===String(lvTrendPid));
+  const nm=document.getElementById("lvTrendName");
+  if(!p){ if(nm) nm.textContent="商品が選ばれていません"; tb.innerHTML=`<div class="muted">上の商品別ランキングから商品名をクリックしてください。</div>`; return; }
+  if(nm) nm.textContent=`${p.name}（${lvTrendMode==="week"?"週別":"月別"}）`;
+  const buckets=(lvTrendMode==="week"? p.byWeek:p.byMonth)||[];
+  if(!buckets.length){ tb.innerHTML=`<div class="muted">この商品の推移データがありません。</div>`; return; }
+  const tgt=lvTarget();
+  const max=Math.max(...buckets.map(b=>b.gmv||0),1);
+  const rows=buckets.map((b,i)=>{
+    const prev=i>0? buckets[i-1]:null;
+    const diff=prev? (b.gmv-prev.gmv):null;
+    const diffTxt=diff==null? "—" : (diff>0? `<span style="color:#2f6f4f">+${yen(diff)}</span>` : diff<0? `<span style="color:#b4433a">${yen(diff)}</span>` : "±0");
+    const ok=tgt>0 && b.gmvPerPinHour!=null && b.gmvPerPinHour>=tgt;
+    const bar=Math.round((b.gmv/max)*100);
+    return `<tr>
+      <td>${esc(lvTrendMode==="week"? b.key+"の週":b.key)}</td>
+      <td style="min-width:120px"><div style="background:#e8eef7;border-radius:4px;height:8px"><div style="width:${bar}%;background:#3f6fb0;height:8px;border-radius:4px"></div></div></td>
+      <td style="text-align:right">${yen(b.gmv)}</td>
+      <td style="text-align:right">${diffTxt}</td>
+      <td style="text-align:right">${b.unitsSold}個</td>
+      <td style="text-align:right">${b.lives}回</td>
+      <td style="text-align:right">${b.pinMinutes? b.pinMinutes+"分":"—"}</td>
+      <td style="text-align:right;font-weight:600;color:${ok?"#2f6f4f":(tgt>0&&b.gmvPerPinHour!=null?"#b4433a":"#333")}">${b.gmvPerPinHour!=null? yen(b.gmvPerPinHour):"—"}</td>
+    </tr>`;}).join("");
+  tb.innerHTML=`<table><thead><tr>
+    <th>期間</th><th>GMV</th><th style="text-align:right">GMV</th><th style="text-align:right">前期間比</th>
+    <th style="text-align:right">販売数</th><th style="text-align:right">登場配信数</th><th style="text-align:right">紹介時間</th>
+    <th style="text-align:right">1時間あたりGMV</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+(function(){
+  const b=document.getElementById("lvLoad"); if(b) b.addEventListener("click",lvLoad);
+  const t=document.getElementById("lvTarget");
+  if(t){
+    t.value=lvTarget()||"";
+    t.addEventListener("change",()=>{ const v=Number(t.value)||0; try{ v>0? localStorage.setItem(LV_TARGET_KEY,String(v)) : localStorage.removeItem(LV_TARGET_KEY);}catch(e){} lvRenderProducts(); lvRenderTrend(); });
+  }
+  const oh=document.getElementById("lvOnlyHit"); if(oh) oh.addEventListener("change",lvRenderProducts);
+  const wk=document.getElementById("lvTrendWeek"); if(wk) wk.addEventListener("click",()=>{ lvTrendMode="week"; lvRenderTrend(); });
+  const mo=document.getElementById("lvTrendMonth"); if(mo) mo.addEventListener("click",()=>{ lvTrendMode="month"; lvRenderTrend(); });
+})();
 
 loadAll();
 </script>
