@@ -16,6 +16,8 @@
  *   初回（TikTokにログインする）:  node scripts/collect_lives.mjs --login
  *   通常実行:                      node scripts/collect_lives.mjs
  *   バックフィルを多めに回す:      node scripts/collect_lives.mjs --pins 10
+ *   画面を表示して実行:            node scripts/collect_lives.mjs --headed
+ *                                  （ヘッドレスでグラフが描画されないときの回避策）
  *
  * 必要な環境変数:
  *   COLLECT_KEY   このスクリプト専用の合言葉。Vercelの環境変数にも同じ値を設定しておく。
@@ -38,11 +40,15 @@ const COLLECT_KEY = process.env.COLLECT_KEY || "";
 
 const DASH = "https://peak-live-tiktok.vercel.app";
 const LIST_URL = "https://seller-jp.tiktok.com/compass/live-analysis/live-details?shop_region=JP";
-const TREND_URL = (id) => `https://shop.tiktok.com/workbench/live/trend-analysis?room_id=${id}&region=JP`;
+// 同じ画面が shop.tiktok.com にもあるが、そちらは別ホスト扱いでログインが乗らず
+// 公開用の宣伝ページが出てしまう。ログイン済みの seller-jp 側を使う。
+const TREND_URL = (id) => `https://seller-jp.tiktok.com/workbench/live/trend-analysis?room_id=${id}&region=JP`;
 
 const args = process.argv.slice(2);
 const LOGIN_MODE = args.includes("--login");
 const PIN_LIMIT = (() => { const i = args.indexOf("--pins"); return i >= 0 ? Math.max(0, Number(args[i + 1]) || 0) : 4; })();
+// グラフ(canvas)がヘッドレスで描画されない場合に、画面を表示して実行するための逃げ道
+const HEADED = args.includes("--headed");
 
 const log = [];
 function say(msg) { const line = `[${new Date().toISOString()}] ${msg}`; console.log(line); log.push(line); }
@@ -155,7 +161,7 @@ async function main() {
   }
 
   const ctx = await chromium.launchPersistentContext(PROFILE_DIR, {
-    headless: !LOGIN_MODE,
+    headless: !LOGIN_MODE && !HEADED,
     viewport: { width: 1600, height: 1000 },
     locale: "ja-JP",
     timezoneId: "Asia/Tokyo",
@@ -228,7 +234,27 @@ async function main() {
     for (const t of targets) {
       try {
         await page.goto(TREND_URL(t.liveId), { waitUntil: "domcontentloaded" });
-        await page.waitForTimeout(6000);
+        // グラフはcanvasで後から描かれる。固定待ちだと足りないことがあるので、出てくるまで待つ。
+        let canvasReady = false;
+        try {
+          await page.waitForFunction(() => {
+            const c = document.querySelector("canvas");
+            return !!c && c.getBoundingClientRect().width > 200;
+          }, { timeout: 45000 });
+          canvasReady = true;
+        } catch (e) { /* 下で診断情報を出す */ }
+        if (!canvasReady) {
+          const diag = await page.evaluate(() => ({
+            title: document.title,
+            url: location.href.replace(/([?&])(?!room_id)[^=]+=[^&]*/g, "$1…"),
+            canvasCount: document.querySelectorAll("canvas").length,
+            bodyHead: (document.body ? document.body.innerText : "").replace(/\s+/g, " ").slice(0, 160),
+          })).catch(() => null);
+          say(`  ${t.date} ${t.startTime} (${t.liveId}): グラフが描画されませんでした`);
+          if (diag) say(`    画面: ${diag.title} / canvas数=${diag.canvasCount} / 本文: ${diag.bodyHead}`);
+          continue;
+        }
+        await page.waitForTimeout(1500);
         const res = await page.evaluate(SCAN_PINS);
         if (res.error) { say(`  ${t.date} ${t.startTime} (${t.liveId}): ${res.error}`); continue; }
         const pins = parsePins(res.lines || []);
