@@ -153,12 +153,69 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
 .oid > summary { cursor:pointer; font-size:11.5px; color:#5a6b9a; list-style:none; white-space:nowrap; }
 .oid > summary::-webkit-details-marker { display:none; }
 .oid > div { font-size:11px; color:#777; margin-top:4px; word-break:break-all; }
+
+/* ===== PCレイアウト: 左サイドバー＋上部固定バー（861px以上） ===== */
+.app { display:grid; grid-template-columns:200px minmax(0,1fr); min-height:100vh; }
+.side { position:sticky; top:0; height:100vh; overflow-y:auto; background:#fff; border-right:1px solid #e6e4df; padding:18px 10px 24px; }
+.side .brand { font-weight:800; font-size:15.5px; padding:0 10px 10px; line-height:1.3; letter-spacing:-.2px; }
+.side .brand small { display:block; font-weight:500; color:#8a8a8a; font-size:11.5px; letter-spacing:0; }
+.side .tabs { display:block; border:none; margin:0; }
+.side .navgrp { font-size:10.5px; font-weight:700; color:#a3a09a; letter-spacing:.8px; padding:16px 10px 5px; }
+.side .tab { display:block; text-decoration:none; border:none; border-radius:8px; padding:8px 12px; margin:1px 0; font-size:13.5px; font-weight:600; color:#4a4a4a; }
+.side .tab:hover { background:#f2f1ed; color:#1a1a1a; }
+.side .tab.active { background:#1a1a1a; color:#fff; border:none; margin:1px 0; }
+.side .tab:focus-visible { outline:2px solid #2f6f4f; outline-offset:1px; }
+.wrap { max-width:1640px; margin:0; padding:0 28px 60px; width:100%; }
+.topbar { position:sticky; top:0; z-index:50; background:rgba(246,246,244,.95); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); margin:0 -28px 18px; padding:12px 28px 11px; border-bottom:1px solid #e6e4df; display:flex; align-items:center; gap:8px 20px; flex-wrap:wrap; }
+.topbar header { flex:0 1 auto; }
+.topbar h1 { font-size:20px; }
+.topbar .controls { margin:0 0 0 auto; }
+th { top:var(--stickyTop,0px); }
+@media (min-width:1400px){ .chartbox{ height:320px; } }
+@media (max-width:860px){
+  .app { display:block; }
+  .side { position:sticky; top:0; z-index:60; height:auto; overflow:visible; border-right:none; border-bottom:1px solid #e6e4df; padding:6px 8px; }
+  .side .brand, .side .navgrp { display:none; }
+  .side .tabs { display:flex; flex-wrap:nowrap; overflow-x:auto; gap:2px; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  .side .tabs::-webkit-scrollbar { display:none; }
+  .side .tab { display:inline-block; white-space:nowrap; padding:7px 11px; font-size:12.5px; }
+  .wrap { padding:0 12px 48px; }
+  .topbar { position:static; margin:0 -12px 12px; padding:10px 12px; background:transparent; backdrop-filter:none; -webkit-backdrop-filter:none; }
+  .topbar .controls { margin:0; }
+  .topbar h1 { font-size:17px; }
+  th { top:0; }
+}
+@media print { .side{display:none!important;} .app{display:block;} .topbar{position:static;border:none;} .topbar h1::before{content:"Peak TOKYO ｜ ";} }
 </style>
 </head>
 <body>
 <div id="overlay"><div class="ovcard"><div class="spin"></div><div class="ovtitle" id="ovTitle">最新データを取得中…</div><div class="ovsub" id="ovSub">TikTok Shop から注文を集計しています</div><div class="ovbar"><i></i></div></div></div>
+<div class="app">
+<aside class="side">
+  <div class="brand">Peak TOKYO<small>ライブコマース分析</small></div>
+  <nav class="tabs" id="tabs" aria-label="画面の切り替え">
+    <div class="navgrp">売上</div>
+    <a class="tab active" href="#overview" data-tab="overview">概要・打ち手</a>
+    <a class="tab" href="#daily" data-tab="daily">売上推移</a>
+    <a class="tab" href="#compare" data-tab="compare">期間比較</a>
+    <a class="tab" href="#trend" data-tab="trend">推移・施策効果</a>
+    <a class="tab" href="#factor" data-tab="factor">要因分析</a>
+    <div class="navgrp">商品</div>
+    <a class="tab" href="#products" data-tab="products">商品</a>
+    <a class="tab" href="#stock" data-tab="stock">原価・在庫</a>
+    <a class="tab" href="#buy" data-tab="buy">仕入判断</a>
+    <div class="navgrp">LIVE配信</div>
+    <a class="tab" href="#live" data-tab="live">LIVE分析</a>
+    <a class="tab" href="#shift" data-tab="shift">配信シフト</a>
+    <a class="tab" href="#timing" data-tab="timing">タイミング</a>
+    <div class="navgrp">顧客・実行</div>
+    <a class="tab" href="#customers" data-tab="customers">顧客</a>
+    <a class="tab" href="#action" data-tab="action">アクション</a>
+  </nav>
+</aside>
 <div class="wrap">
-  <header><h1>Peak TOKYO ライブコマース分析</h1><span class="sub" id="storeSub">TikTok Shop連携 · ライブ（URL）</span></header>
+  <div class="topbar">
+  <header><h1 id="pageTitle">概要・打ち手</h1><span class="sub" id="storeSub">TikTok Shop連携 · ライブ（URL）</span></header>
   <div class="controls">
     <label for="period" class="sub">集計期間:</label>
     <select id="period">
@@ -183,22 +240,8 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
     <button id="csvBtn" title="表示中の期間の商品売上ランキングをCSV(Excel対応)で書き出します">🧾 売上ランキングCSV</button>
     <span class="progress" id="globalStatus"></span>
   </div>
-  <div id="snapBar" style="display:none;margin:0 0 10px;padding:8px 12px;border-radius:8px;font-size:12.5px"></div>
-  <div class="tabs" id="tabs">
-    <div class="tab active" data-tab="overview">概要・打ち手</div>
-    <div class="tab" data-tab="products">商品</div>
-    <div class="tab" data-tab="stock">原価・在庫</div>
-    <div class="tab" data-tab="buy">仕入判断</div>
-    <div class="tab" data-tab="customers">顧客</div>
-    <div class="tab" data-tab="trend">推移・施策効果</div>
-    <div class="tab" data-tab="daily">売上推移</div>
-    <div class="tab" data-tab="compare">期間比較</div>
-    <div class="tab" data-tab="factor">要因分析</div>
-    <div class="tab" data-tab="timing">タイミング</div>
-    <div class="tab" data-tab="shift">配信シフト</div>
-    <div class="tab" data-tab="live">LIVE分析</div>
-    <div class="tab" data-tab="action">アクション</div>
   </div>
+  <div id="snapBar" style="display:none;margin:0 0 10px;padding:8px 12px;border-radius:8px;font-size:12.5px"></div>
 
   <!-- OVERVIEW -->
   <div class="panel active" id="panel-overview">
@@ -814,6 +857,7 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
   <div class="foot" id="snapFoot" style="margin-bottom:4px"></div>
   <div class="foot">データ提供: TikTok Shop (Peak TOKYO) · 原価=スーパーデリバリー仕入れ実績 · 開くたび／再読み込みのたびに最新データを取得します（10分キャッシュ）</div>
 </div>
+</div><!-- /.app -->
 
 <script>
 const yen=n=>"¥"+Math.round(Number(n)||0).toLocaleString("ja-JP");
@@ -1937,10 +1981,34 @@ document.querySelectorAll('#trendUnit button').forEach(b=>b.addEventListener("cl
 document.querySelectorAll('#trendMetric button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#trendMetric button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); trendMetric=b.dataset.m; if(DATA)renderTrends(); }));
 document.querySelectorAll('#cmpWin button').forEach(b=>b.addEventListener("click",()=>{ document.querySelectorAll('#cmpWin button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); cmpWin=Number(b.dataset.w); renderCmpCompare(); }));
 
+/* ===== 画面切り替え: URLの#に現在画面を持たせる（再読み込みで同じ画面・ブラウザの戻る/進むが効く・Cmd/Ctrl+クリックで別タブ） ===== */
+const TAB_KEY="peak_last_tab_v1"; const tabScroll={};
+function curTab(){ const a=document.querySelector("#tabs .tab.active"); return a?a.dataset.tab:"overview"; }
+function showTab(name,opts){ opts=opts||{};
+  const t=document.querySelector('#tabs .tab[data-tab="'+name+'"]'); const p=document.getElementById("panel-"+name);
+  if(!t||!p) return false;
+  const prev=curTab(); if(prev!==name) tabScroll[prev]=window.scrollY;
+  document.querySelectorAll("#tabs .tab").forEach(x=>{ x.classList.toggle("active",x===t); if(x===t) x.setAttribute("aria-current","page"); else x.removeAttribute("aria-current"); });
+  document.querySelectorAll(".panel").forEach(x=>x.classList.toggle("active",x===p));
+  const pt=document.getElementById("pageTitle"); if(pt) pt.textContent=t.textContent;
+  document.title=t.textContent+" | Peak TOKYO ライブコマース分析";
+  try{ localStorage.setItem(TAB_KEY,name); }catch(e){}
+  if(opts.push!==false && location.hash!=="#"+name){ try{ history.pushState(null,"","#"+name); }catch(e){} }
+  if(opts.scroll!==false && prev!==name) window.scrollTo(0,tabScroll[name]||0);
+  try{ t.scrollIntoView({block:"nearest",inline:"nearest"}); }catch(e){}
+  try{ window.dispatchEvent(new Event("resize")); }catch(err){}
+  return true; }
 document.getElementById("tabs").addEventListener("click",e=>{ const t=e.target.closest(".tab"); if(!t)return;
-  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active")); t.classList.add("active");
-  document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active")); document.getElementById("panel-"+t.dataset.tab).classList.add("active");
-  try{ window.dispatchEvent(new Event("resize")); }catch(err){} });
+  if(e.metaKey||e.ctrlKey||e.shiftKey||e.button===1) return; // 別タブで開く操作はブラウザに任せる
+  e.preventDefault(); showTab(t.dataset.tab); });
+window.addEventListener("popstate",()=>showTab((location.hash||"#overview").slice(1),{push:false}));
+window.addEventListener("hashchange",()=>{ const n=(location.hash||"").slice(1); if(n&&n!==curTab()) showTab(n,{push:false}); });
+(function initTab(){ let n=(location.hash||"").slice(1); if(!document.getElementById("panel-"+n)){ try{ n=localStorage.getItem(TAB_KEY)||""; }catch(e){ n=""; } }
+  if(!document.getElementById("panel-"+n)) n="overview";
+  showTab(n,{push:false,scroll:false}); try{ history.replaceState(null,"","#"+n); }catch(e){} })();
+/* 上部固定バーの高さぶん、表の見出し固定位置をずらす */
+function syncStickyTop(){ const tb=document.querySelector(".topbar"); if(!tb)return; const v=getComputedStyle(tb).position==="sticky"?tb.offsetHeight:0; document.documentElement.style.setProperty("--stickyTop",v+"px"); }
+window.addEventListener("resize",syncStickyTop); syncStickyTop();
 
 /* ===== アコーディオン: 各カードの見出しクリックで開閉（状態は端末に保存） ===== */
 const ACC_KEY="peak_acc_collapsed_v1";
