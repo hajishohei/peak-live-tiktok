@@ -613,12 +613,20 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
 
   <!-- ===== LIVE分析（TikTokのLIVE・動画の一元分析） ===== -->
   <div class="panel" id="panel-live">
-    <div class="kpis" style="grid-template-columns:repeat(5,1fr)">
+    <!-- 状態表示は1行に畳む（自動で読み込むので、普段は見なくてよい情報） -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 10px;font-size:12px">
+      <span class="muted" id="lvUpdated"></span>
+      <span class="muted" id="lvProgress">読み込み中…</span>
+      <button class="mini" id="lvLoad" style="margin-left:auto" title="TikTokから最新の数字を取り直します">↻ 最新に更新</button>
+    </div>
+
+    <div class="kpis" style="grid-template-columns:repeat(6,1fr)">
       <div class="kpi" style="border-color:#c9d9ee;background:linear-gradient(180deg,#f7fbff,#fff)">
         <div class="label" style="color:#3f6fb0">配信1時間あたりGMV</div>
-        <div class="val" id="lvPerMin" style="font-size:24px;color:#2b4f80">—</div>
-        <div class="delta" id="lvPerHourSub">LIVE帰属GMV ÷ 配信時間</div>
+        <div class="val" id="lvPerHour" style="font-size:24px;color:#2b4f80">—</div>
+        <div class="delta" id="lvPerHourSub">配信GMV ÷ 配信時間</div>
       </div>
+      <div class="kpi"><div class="label">配信後に売れた割合</div><div class="val" id="lvAfterRate">—</div><div class="delta" id="lvAfterSub">配信が終わってからの購入</div></div>
       <div class="kpi"><div class="label">LIVE経由GMV</div><div class="val" id="lvGmvLive">—</div><div class="delta" id="lvGmvLiveSub">—</div></div>
       <div class="kpi"><div class="label">動画経由GMV</div><div class="val" id="lvGmvVideo" style="color:#2f6f4f">—</div><div class="delta" id="lvGmvVideoSub">—</div></div>
       <div class="kpi"><div class="label">商品カード経由GMV</div><div class="val" id="lvGmvCard">—</div><div class="delta" id="lvGmvCardSub">LIVE・動画を経由しない購入</div></div>
@@ -626,26 +634,14 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
     </div>
 
     <div class="card">
-      <h2>📡 データの取得状況</h2>
-      <p class="desc">配信の明細（商品別・分単位）はTikTokのAPIを配信ごとに叩くため、1回の読み込みで数件ずつ計算して保存します。「未計算」が残っている間は再読み込みで続きが進みます。</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-        <button class="primary" id="lvLoad">読み込む / 続きを計算</button>
-        <span class="muted" id="lvProgress">未読み込み</span>
-      </div>
-      <div class="muted" style="font-size:11px;line-height:1.6">
-        配信一覧（live_id・開始終了時刻・GMV）はTikTokのAPIでは取得できないため、毎朝のスケジュールタスクがセラーセンターの画面から収集して保存しています。
-      </div>
-    </div>
-
-    <div class="card">
       <h2>🎬 配信ごとの実績</h2>
-      <p class="desc">画面の派生GMVとAPIの直接GMVは集計基準が異なります。差（画面−API）は「配信後に売れた分」の目安になりますが、マイナスになる配信もあるため参考値として見てください。</p>
-      <div id="lvLiveBody"><div class="muted">「読み込む」を押してください。</div></div>
+      <p class="desc"><b>配信中</b>はピン留めグラフの5分ごとの売上の合計、<b>配信後</b>は配信が終わってから積み上がった売上です（TikTokのLIVEダッシュボードと同じ数字の基準）。</p>
+      <div id="lvLiveBody"><div class="muted">読み込み中…</div></div>
     </div>
 
     <div class="card">
       <h2>🏆 商品別ランキング（LIVE経由・期間合計）</h2>
-      <p class="desc">期間中の全配信を合算した商品別の実績です。<b>1時間あたりGMV</b>は「その商品を紹介していた時間に対して、いくら売れたか」を表します。紹介時間の長短に左右されないので、商品そのものの強さを比べられます。</p>
+      <p class="desc">期間中の全配信を合算した商品別の実績です。<b>1時間あたりGMV</b>は「紹介した配信での売上 ÷ 紹介時間」です。紹介していない配信でカタログ経由で売れた分は「うち紹介なし」に分けているので、紹介の効果だけを比べられます。商品別の売上はTikTok APIの直接GMV基準です。</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px 12px;background:#f7fbff;border:1px solid #c9d9ee;border-radius:10px">
         <span style="font-size:12px;font-weight:600;color:#2b4f80">1時間あたりGMVの目標</span>
         <input type="number" id="lvTarget" step="1000" min="0" style="width:110px" placeholder="30000">
@@ -2643,6 +2639,16 @@ renderCmpList(); renderCmpPick(); renderCmpCompare();
    商品別ランキング・動画別実績をまとめて取得して描画する。
    配信明細はサーバ側でBlobにキャッシュされ、1リクエストにつき数件ずつ計算される（タイムアウト回避）。 */
 let lvData=null, lvBusy=false;
+const LV_CACHE_KEY="peak_lv_last_payload_v1";
+function lvSaveCache(j){ try{ localStorage.setItem(LV_CACHE_KEY, JSON.stringify({at:Date.now(), period:j.period, payload:j})); }catch(e){} }
+function lvLoadCache(){ try{ const r=JSON.parse(localStorage.getItem(LV_CACHE_KEY)||"null"); return (r&&r.payload)?r:null; }catch(e){ return null; } }
+function lvStamp(at, stale){
+  const el=document.getElementById("lvUpdated"); if(!el) return;
+  if(!at){ el.textContent=""; return; }
+  const d=new Date(at), hh=String(d.getHours()).padStart(2,"0"), mm=String(d.getMinutes()).padStart(2,"0");
+  el.innerHTML = stale ? `<span style="color:#d4861f">前回の内容を表示中（${hh}:${mm}時点）・最新を取得しています…</span>`
+                       : `最終更新 ${hh}:${mm}`;
+}
 function lvPeriod(){
   // 画面上部の集計期間に追随する（DATA.range）。未取得なら直近30日にフォールバック。
   const today=new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
@@ -2656,20 +2662,24 @@ function lvPeriod(){
 async function lvLoad(){
   if(lvBusy) return; lvBusy=true;
   const p=lvPeriod(), prog=document.getElementById("lvProgress");
-  if(prog) prog.textContent=`読み込み中…（${p.since}〜${p.until}）`;
+  if(prog && !lvData) prog.textContent=`読み込み中…（${p.since}〜${p.until}）`;
   // 応答が返らないとボタンが押せないままになるので、必ず打ち切る
   const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(), 60000);
   try{
-    const r=await fetch(`/api/live_analytics?mode=overview&since=${p.since}&until=${p.until}&limit=40`,{credentials:"include",signal:ctrl.signal});
+    const rf=lvForceRefresh? "&refresh=1":""; lvForceRefresh=false;
+    const r=await fetch(`/api/live_analytics?mode=overview&since=${p.since}&until=${p.until}&limit=60${rf}`,{credentials:"include",signal:ctrl.signal});
     const j=await r.json();
     if(!j.ok){ if(prog) prog.textContent="取得に失敗しました: "+(j.error||""); return; }
-    lvData=j; lvRender();
+    lvData=j; lvFetchedPeriod=p.since+"_"+p.until; lvSaveCache(j); lvRender(); lvStamp(Date.now(), false);
+    // 新しい配信の明細が未計算なら、ボタンを押させずに自動で続きを取りに行く
+    if(j.progress && j.progress.pending>0) setTimeout(()=>{ lvLoad(); }, 300);
   }catch(e){
-    const msg=(e&&e.name==="AbortError") ? "時間がかかりすぎたため中断しました。もう一度押すと続きから計算します。" : ("取得に失敗しました: "+(e&&e.message||e));
+    const msg=(e&&e.name==="AbortError") ? "時間がかかりすぎたため中断しました。「最新に更新」で続きから再開できます。" : ("取得に失敗しました: "+(e&&e.message||e));
     if(prog) prog.textContent=msg;
   }
   finally{ clearTimeout(timer); lvBusy=false; }
 }
+let lvForceRefresh=false;
 function lvRender(){
   const j=lvData; if(!j) return;
   const s=j.summary||{}, b=j.breakdown||{};
@@ -2683,7 +2693,9 @@ function lvRender(){
   set("lvGmvCardSub", b.ok? `全体の${sh.productCard}%`:"LIVE・動画を経由しない購入");
   set("lvCount", (s.liveCount||0)+"本");
   set("lvCountSub", `合計 ${Math.floor((s.liveTotalMin||0)/60)}時間${(s.liveTotalMin||0)%60}分 / 販売 ${s.liveUnits||0}個`);
-  set("lvPerMin", s.gmvPerLiveHour!=null? yen(s.gmvPerLiveHour):"—");
+  set("lvPerHour", s.gmvPerLiveHour!=null? yen(s.gmvPerLiveHour):"—");
+  set("lvAfterRate", s.afterLiveRate!=null? s.afterLiveRate+"%":"—");
+  set("lvAfterSub", s.afterLiveGmv!=null? `配信後 ${yen(s.afterLiveGmv)} / 配信中 ${yen(s.inLiveGmv||0)}`:"配信が終わってからの購入");
   // 目標を入れていれば、全体平均が達しているかを一目で出す
   (function(){
     const el=document.getElementById("lvPerHourSub"); if(!el) return;
@@ -2693,38 +2705,38 @@ function lvRender(){
       el.innerHTML = d>=0
         ? `目標${yen(tg)}に対し <span style="color:#2f6f4f;font-weight:700">+${yen(d)}</span> 達成`
         : `目標${yen(tg)}に対し <span style="color:#b4433a;font-weight:700">${yen(d)}</span> 未達`;
-    } else { el.textContent="LIVE帰属GMV ÷ 配信時間"; }
+    } else { el.textContent="配信GMV ÷ 配信時間（目標は下の商品ランキングで設定）"; }
   })();
   const pr=j.progress||{};
   const prog=document.getElementById("lvProgress");
   const pd=(j.period||{});
-  if(prog) prog.textContent = `${pd.since||""}〜${pd.until||""} ／ 期間内 ${pr.totalLivesInRange||0}本 / 表示 ${pr.loaded||0}本 / 未計算 ${pr.pending||0}本 ー ${pr.hint||""}`;
+  if(prog) prog.textContent = `${pd.since||""}〜${pd.until||""}・${pr.loaded||0}配信` + (pr.pending>0? `（残り${pr.pending}配信を計算中…）`:"");
 
   // 配信ごと
   const lb=document.getElementById("lvLiveBody");
   if(lb){
+    const tg=lvTarget();
     const rows=(j.lives||[]).map(l=>{
-      const diff=l.screenMinusApi;
-      const diffTxt = diff==null? "—" : (diff>=0? `<span style="color:#2f6f4f">+${yen(diff)}</span>` : `<span style="color:#b4433a">${yen(diff)}</span>`);
-      // 比率は画面GMVを分母にする（APIの直接GMVを分母にすると後追いの割合が過大に出るため）
-      const base = l.screenGmv || l.attributedGmv;
-      const rate = (diff!=null && base>0)? Math.round(diff/base*1000)/10 : null;
-      return `<tr>
+      const ok = tg>0 && l.gmvPerHour!=null && l.gmvPerHour>=tg;
+      const after = l.afterGmv!=null
+        ? `${yen(l.afterGmv)}<div class="muted" style="font-size:11px">${l.afterRate!=null? l.afterRate+"%":""}</div>`
+        : "<span class='muted'>—</span>";
+      return `<tr${ok?' style="background:#f3faf6"':''}>
         <td>${esc(l.date)}<div class="muted" style="font-size:11px">${esc(l.startTime)}〜${esc(l.endTime)}</div></td>
+        <td style="text-align:right;font-weight:700;color:${ok?"#2f6f4f":"#2b4f80"}">${l.gmvPerHour!=null?yen(l.gmvPerHour):"—"}</td>
+        <td style="text-align:right">${yen(l.attributedGmv||0)}</td>
+        <td style="text-align:right">${l.inLiveGmv!=null?yen(l.inLiveGmv):"—"}</td>
+        <td style="text-align:right">${after}</td>
         <td style="text-align:right">${l.durationMin!=null?l.durationMin+"分":"—"}</td>
-        <td style="text-align:right">${l.screenGmv!=null? yen(l.screenGmv) : "<span class='muted'>—</span>"}</td>
-        <td style="text-align:right">${l.apiDirectGmv!=null?yen(l.apiDirectGmv):"—"}</td>
-        <td style="text-align:right">${diffTxt}${rate!=null?`<div class="muted" style="font-size:11px">${rate}%</div>`:""}</td>
-        <td style="text-align:right">${l.unitsTotal||l.apiUnits||0}個</td>
+        <td style="text-align:right">${l.unitsTotal||0}個</td>
         <td style="text-align:right">${(l.viewers||0).toLocaleString("ja-JP")}</td>
-        <td style="text-align:right">${l.gmvPerHour!=null?yen(l.gmvPerHour):"—"}</td>
-        <td style="text-align:right">${(l.pins||[]).length? (l.pins||[]).length+"件":"<span class='muted'>未収集</span>"}</td>
+        <td style="text-align:right">${l.pinCount? l.pinCount+"区間":"<span class='muted' title='ピン留め未収集のためAPI基準で表示'>未収集</span>"}</td>
       </tr>`;
     }).join("");
     lb.innerHTML = rows? `<table><thead><tr>
-      <th>配信日</th><th style="text-align:right">配信時間</th><th style="text-align:right">画面GMV</th>
-      <th style="text-align:right">API直接GMV</th><th style="text-align:right">差（後追いの目安）</th>
-      <th style="text-align:right">販売数</th><th style="text-align:right">視聴者</th><th style="text-align:right">1時間あたり</th><th style="text-align:right">紹介時間</th>
+      <th>配信日</th><th style="text-align:right">1時間あたり</th><th style="text-align:right">配信GMV</th>
+      <th style="text-align:right">配信中</th><th style="text-align:right">配信後</th>
+      <th style="text-align:right">配信時間</th><th style="text-align:right">販売数</th><th style="text-align:right">視聴者</th><th style="text-align:right">紹介記録</th>
       </tr></thead><tbody>${rows}</tbody></table>` : `<div class="muted">配信データがありません。</div>`;
   }
 
@@ -2782,20 +2794,21 @@ function lvRenderProducts(){
     return `<tr${ok?' style="background:#f3faf6"':''}>
       <td style="text-align:right">${i+1}</td>
       <td><a href="#" data-lvpid="${esc(p.id)}" style="color:#2b4f80;text-decoration:none;border-bottom:1px dotted #9bb6d8">${esc(p.name||p.id)}</a></td>
-      <td style="text-align:right">${p.gmvPerPinHour!=null?perH:perH}</td>
+      <td style="text-align:right">${perH}</td>
       <td style="text-align:right">${p.pinMinutes? p.pinMinutes+"分":"<span class='muted'>—</span>"}</td>
       <td style="text-align:right">${yen(p.gmv)}</td>
+      <td style="text-align:right">${p.unpinnedGmv>0? `<span title="紹介していない配信で売れた分（カタログ経由など）">${yen(p.unpinnedGmv)}</span>` : "<span class='muted'>—</span>"}</td>
       <td style="text-align:right">${p.unitsSold}個</td>
-      <td style="text-align:right">${p.lives}回</td>
-      <td style="text-align:right">${(p.impressions||0).toLocaleString("ja-JP")}</td>
+      <td style="text-align:right">${p.pinnedLives||0}/${p.lives}回</td>
       <td style="text-align:right">${p.addToCart||0}</td>
     </tr>`;}).join("");
 
   pb.innerHTML = rows? `<table><thead><tr>
     <th style="text-align:right">#</th><th>商品（クリックで推移）</th>
     <th style="text-align:right">1時間あたりGMV</th><th style="text-align:right">紹介時間</th>
-    <th style="text-align:right">GMV</th><th style="text-align:right">販売数</th><th style="text-align:right">登場配信数</th>
-    <th style="text-align:right">表示回数</th><th style="text-align:right">カート追加</th>
+    <th style="text-align:right">GMV</th><th style="text-align:right" title="紹介していない配信で売れた分">うち紹介なし</th>
+    <th style="text-align:right">販売数</th><th style="text-align:right" title="紹介した配信数 / 売上が立った配信数">紹介/登場</th>
+    <th style="text-align:right">カート追加</th>
     </tr></thead><tbody>${rows}</tbody></table>` : `<div class="muted">該当する商品がありません。</div>`;
 
   pb.querySelectorAll("[data-lvpid]").forEach(a=>a.addEventListener("click",e=>{
@@ -2834,12 +2847,27 @@ function lvRenderTrend(){
     <th style="text-align:right">販売数</th><th style="text-align:right">登場配信数</th><th style="text-align:right">紹介時間</th>
     <th style="text-align:right">1時間あたりGMV</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
+// 起動時: 前回の内容があれば即表示し、裏で最新を取りに行く（ボタンを押さなくてよいように）
+let lvFetchedPeriod="";
+function lvBoot(){
+  const c=lvLoadCache();
+  if(c){ lvData=c.payload; try{ lvRender(); }catch(e){} lvStamp(c.at, true); }
+  // メインの集計読み込みと並行して走らせる。待たないので初期表示は遅くならない。
+  lvLoad();
+  // 起動直後は DATA.range がまだ無いため、期間が確定したら取り直す。
+  // 画面上部で期間を変えたときにも、同じ仕組みで自動的に追随する。
+  setInterval(()=>{
+    if(lvBusy) return;
+    const p=lvPeriod(), key=p.since+"_"+p.until;
+    if(key!==lvFetchedPeriod) lvLoad();
+  }, 2500);
+}
 (function(){
-  const b=document.getElementById("lvLoad"); if(b) b.addEventListener("click",lvLoad);
+  const b=document.getElementById("lvLoad"); if(b) b.addEventListener("click",()=>{ lvBusy=false; lvForceRefresh=true; lvLoad(); });
   const t=document.getElementById("lvTarget");
   if(t){
     t.value=lvTarget()||"";
-    t.addEventListener("change",()=>{ const v=Number(t.value)||0; try{ v>0? localStorage.setItem(LV_TARGET_KEY,String(v)) : localStorage.removeItem(LV_TARGET_KEY);}catch(e){} lvRenderProducts(); lvRenderTrend(); });
+    t.addEventListener("change",()=>{ const v=Number(t.value)||0; try{ v>0? localStorage.setItem(LV_TARGET_KEY,String(v)) : localStorage.removeItem(LV_TARGET_KEY);}catch(e){} lvRender(); lvRenderTrend(); });
   }
   const oh=document.getElementById("lvOnlyHit"); if(oh) oh.addEventListener("change",lvRenderProducts);
   const wk=document.getElementById("lvTrendWeek"); if(wk) wk.addEventListener("click",()=>{ lvTrendMode="week"; lvRenderTrend(); });
@@ -2847,6 +2875,7 @@ function lvRenderTrend(){
 })();
 
 loadAll();
+lvBoot();   // LIVE分析は待たずに並行で読み込む（タブを開いたときには揃っている状態にする）
 </script>
 </body>
 </html>

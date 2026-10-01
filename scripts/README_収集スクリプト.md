@@ -69,35 +69,25 @@ node scripts/collect_lives.mjs --pins 40
 
 ## 3. 毎朝の自動実行（launchd）
 
-`~/Library/LaunchAgents/com.harbor.bclive.collect.plist` を作ります。
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.harbor.bclive.collect</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/zsh</string>
-    <string>-lc</string>
-    <string>cd ~/Desktop/peak-live-tiktok &amp;&amp; node scripts/collect_lives.mjs</string>
-  </array>
-  <key>StartCalendarInterval</key>
-  <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
-  <key>StandardOutPath</key><string>/tmp/bclive-collect.out</string>
-  <key>StandardErrorPath</key><string>/tmp/bclive-collect.err</string>
-</dict>
-</plist>
-```
-
-登録します。
+1コマンドで登録できます。登録と同時に1回動かして確認するなら `--run-now` を付けてください。
 
 ```
-launchctl load ~/Library/LaunchAgents/com.harbor.bclive.collect.plist
+zsh scripts/install_daily.sh --run-now
 ```
 
-`COLLECT_KEY` は `~/.zshrc` に書いてあれば `zsh -lc` 経由で読まれます。
+毎朝9:00に自動で収集します。Macがスリープ中で9時を過ぎた場合は、起きたときに1回実行されます。
+結果は `scripts/collect_lives.log` に追記されます（`tail -5 scripts/collect_lives.log` で確認）。
+
+解除するとき:
+
+```
+zsh scripts/install_daily.sh --uninstall
+```
+
+※ plistを手書きしないでください。launchdから起動したシェルは `~/.zshrc` を読まないため
+`COLLECT_KEY` が入らず、また `node` の場所も見つからずに失敗します。登録スクリプトはこの2点を
+自動で解決します（いまのターミナルの値をplistに直接書き込みます）。合言葉を変えたときは、
+`~/.zshrc` を直して `source ~/.zshrc` したあと、もう一度登録スクリプトを実行してください。
 
 ---
 
@@ -117,12 +107,11 @@ TikTok側の画面が変わるとスクリプトは黙って空データを返�
 
 ---
 
-## 5. スケジュールタスクとの関係
+## 5. Claudeのスケジュールタスクについて
 
-Claudeの毎朝タスク（`bc-choice-live-collect`）は、このスクリプトが安定稼働したら無効化してください。
-両方動くと同じデータを二重に取りに行くことになります（上書き保存なので壊れはしませんが無駄です）。
-
-当面は、スクリプトが壊れたときの調査役としてClaudeを残しておくのが安全です。
+以前はClaudeが毎朝ブラウザを操作して収集していましたが、トークン消費が大きいためこのスクリプトに置き換え、
+スケジュールタスク（`bc-choice-live-collect`）は削除済みです。スクリプトが壊れたとき
+（画面構造の変更など）だけ、Claudeに調査を依頼してください。
 
 ---
 

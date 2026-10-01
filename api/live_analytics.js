@@ -181,27 +181,50 @@ export default async function handler(req, res) {
     const inRange = Object.values(sessions || {})
       .filter((s) => s && s.date >= since && s.date <= until)
       .sort((a, b) => String(b.date + (b.startTime || "")).localeCompare(String(a.date + (a.startTime || ""))));
-    const limit = Math.max(1, Math.min(40, Number(q.limit) || 40));
+    const limit = Math.max(1, Math.min(60, Number(q.limit) || 60));
     const targets = inRange.slice(0, limit);
 
-    const [breakdown, videos] = await Promise.all([
-      fetchBreakdown(env, shop, since, until).catch((e) => ({ ok: false, error: String((e && e.message) || e) })),
-      fetchVideos(env, shop, since, until).catch((e) => ({ ok: false, error: String((e && e.message) || e) })),
-    ]);
-
-    // 各LIVEの明細は件数が多いと重いので、分単位は既定で取得する（1配信あたり1リクエスト）
-    // 配信中／後追いの算出基準について（重要）
-    //  - TikTokの画面(LIVEダッシュボード)が出す「派生GMV」と、APIの products_performance が返す
-    //    direct_gmv は別物。8/30の配信で検証すると画面35,837円/7個に対しAPIは29,984円/6個で、
-    //    双方にしか出てこない商品がある（APIは直接購入のみを見ている）。
-    //  - そのため、画面と数字を一致させたい指標（配信ごとのGMV・後追い比率）は
-    //    ブラウザ収集したセッション値（gmv＝派生GMV、pinsの各5分バケットGMV）を優先する。
-    //  - APIの値は内訳・商品別ランキング用として併記する（api* フィールド）。
-    // 1配信あたり数回のAPI呼び出しが要るため、終了済み配信の明細はBlobにキャッシュする。
-    // 未計算ぶんは1リクエストにつき maxCompute 件だけ処理し、残りは pending として返す
-    // （UI側が完了するまで再取得すれば、数回で全件そろう）。
+    // 配信明細・流入元内訳・動画一覧のキャッシュ（Blob）。以降の処理すべてで使うので最初に読む。
     const cache = await loadLiveCache();
     let cacheDirty = false;
+
+    // 流入元内訳と動画一覧は毎回APIを叩くと遅い（動画はページ送りで数秒かかる）。
+    // 日中そう大きく動く数字でもないので、期間ごとに30分だけキャッシュする。
+    // 置き場所は配信明細と同じBlob。キー名を __ で始めて配信IDと衝突しないようにしている。
+    const ANALYTICS_TTL_MS = 30 * 60 * 1000;
+    const ckBreak = `__breakdown__${since}_${until}`;
+    const ckVideo = `__videos__${since}_${until}`;
+    const fresh = (e) => e && e.builtAt && (Date.now() - e.builtAt) < ANALYTICS_TTL_MS;
+    let breakdown, videos;
+    if (fresh(cache[ckBreak]) && fresh(cache[ckVideo]) && String(q.refresh || "") !== "1") {
+      breakdown = cache[ckBreak].data; videos = cache[ckVideo].data;
+    } else {
+      const got = await Promise.all([
+        fetchBreakdown(env, shop, since, until).catch((e) => ({ ok: false, error: String((e && e.message) || e) })),
+        fetchVideos(env, shop, since, until).catch((e) => ({ ok: false, error: String((e && e.message) || e) })),
+      ]);
+      breakdown = got[0];
+      // 動画は全件持つと重いので、画面で使う分だけに絞って保存する
+      videos = got[1] && got[1].ok
+        ? { ok: true, totalCount: got[1].totalCount, fetched: got[1].fetched, gmvTotal: got[1].gmvTotal, unitsTotal: got[1].unitsTotal, byCreator: got[1].byCreator, videos: got[1].videos.slice(0, 30) }
+        : got[1];
+      cache[ckBreak] = { builtAt: Date.now(), data: breakdown };
+      cache[ckVideo] = { builtAt: Date.now(), data: videos };
+      cacheDirty = true;
+    }
+    // 古い期間のキャッシュが溜まり続けないよう、2日より前のものは捨てる
+    for (const k of Object.keys(cache)) {
+      if (k.startsWith("__") && cache[k] && cache[k].builtAt && Date.now() - cache[k].builtAt > 2 * 86400e3) { delete cache[k]; cacheDirty = true; }
+    }
+
+    // 配信中／配信後（後追い）の算出基準（2026-09-29 決定: 画面基準に一本化）
+    //  - TikTokの画面(LIVEダッシュボード)の「派生GMV」と、APIの direct_gmv は別物で包含関係にもない。
+    //  - 配信ごとのGMVと後追い比率は、収集スクリプトが画面から取った値で計算する:
+    //      配信GMV ＝ 画面の派生GMV（収集のたびに直近7日分を取り直すので、配信後の購入も積み上がる）
+    //      配信中  ＝ ピン留めタイムラインの5分バケットGMVの合計
+    //      配信後  ＝ 配信GMV − 配信中
+    //  - ピン留めが未収集の配信だけ、やむを得ずAPI基準（direct_gmv と分単位GMV）で代用する。
+    // 配信明細のAPI呼び出しは1配信数回かかるため、未計算ぶんは1リクエスト maxCompute 件までに抑える。
     const maxCompute = Math.max(0, Math.min(8, Number(q.compute) != null && Number(q.compute) >= 0 ? Number(q.compute) : 4));
     let computed = 0, pending = 0;
 
@@ -242,15 +265,13 @@ export default async function handler(req, res) {
         basis: useScreen ? "画面(派生GMV)" : "API(直接GMV)",
         unitsTotal: num(s.units) || d.unitsTotal || 0,
         gmvPerHour: durationSec ? Math.round(attributed / (durationSec / 3600)) : null,
-        // APIの生値（突き合わせ用）
-        apiDirectGmv: Math.round(d.attributedGmv), apiInLiveGmv: d.inLiveGmv, apiUnits: d.unitsTotal || 0,
-        // 画面の派生GMVとAPIの直接GMVの差。プラスなら「配信後に売れた分」と解釈できるが、
-        // マイナスになる配信もあるため（指標定義が完全な包含関係ではない）、値をそのまま出して判断材料にする。
-        screenMinusApi: (num(s.gmv) > 0 && d.attributedGmv != null) ? Math.round(num(s.gmv) - d.attributedGmv) : null,
-        screenGmv: num(s.gmv) || null,   // ブラウザ収集した画面の派生GMV（そのまま表示用）
-        pins,                             // 紹介時間（ブラウザ収集）
-        products: (d.products || []).slice(0, 50),
-        minuteCount: d.minuteCount != null ? d.minuteCount : (d.minutes || []).length,
+        apiDirectGmv: Math.round(d.attributedGmv),   // 参考値（API基準）。画面には出さない
+        // 画面では件数しか使わないので、pinsと商品明細そのものは返さない（転送量を減らすため）。
+        // 商品別の集計はこのあとサーバー側で済ませる。
+        pinCount: pins.length,
+        pinMinutes: pins.reduce((a, x) => a + num(x.minutes), 0),
+        _products: d.products || [],    // 集計用（レスポンスからは後で外す）
+        _pins: pins,                    // 集計用（同上）
         errors: [d.productsError, d.minutesError].filter(Boolean),
       });
     }
@@ -265,22 +286,26 @@ export default async function handler(req, res) {
       x.setUTCDate(x.getUTCDate() - dow);
       return x.toISOString().slice(0, 10);
     };
+    // 1時間あたりGMVの分子は「その商品を紹介した配信での売上」だけにする。
+    // 紹介していない配信でカタログ経由で売れた分まで入れると、紹介時間に対して過大に出るため。
     const bucketAdd = (store, key, p, mins) => {
-      if (!store[key]) store[key] = { key, gmv: 0, unitsSold: 0, pinMinutes: 0, lives: 0 };
+      if (!store[key]) store[key] = { key, gmv: 0, pinnedGmv: 0, unitsSold: 0, pinMinutes: 0, lives: 0 };
       const b = store[key];
       b.gmv += p.gmv; b.unitsSold += p.unitsSold; b.pinMinutes += mins; b.lives++;
+      if (mins > 0) b.pinnedGmv += p.gmv;
     };
     const byProduct = {};
     for (const lv of lives) {
       const pinMin = {};
-      for (const p of lv.pins || []) { const k = String(p.productName || ""); pinMin[k] = (pinMin[k] || 0) + num(p.minutes); }
+      for (const p of lv._pins || []) { const k = String(p.productName || ""); pinMin[k] = (pinMin[k] || 0) + num(p.minutes); }
       const wk = lv.date ? weekKey(lv.date) : "", mo = (lv.date || "").slice(0, 7);
-      for (const p of lv.products) {
-        if (!byProduct[p.id]) byProduct[p.id] = { id: p.id, name: p.name, lives: 0, gmv: 0, unitsSold: 0, impressions: 0, addToCart: 0, pinMinutes: 0, _w: {}, _m: {} };
+      for (const p of lv._products) {
+        if (!byProduct[p.id]) byProduct[p.id] = { id: p.id, name: p.name, lives: 0, pinnedLives: 0, gmv: 0, pinnedGmv: 0, unitsSold: 0, impressions: 0, addToCart: 0, pinMinutes: 0, _w: {}, _m: {} };
         const o = byProduct[p.id];
         const mins = pinMin[p.name] || 0;
         o.lives++; o.gmv += p.gmv; o.unitsSold += p.unitsSold; o.impressions += p.impressions; o.addToCart += p.addToCart;
         o.pinMinutes += mins;
+        if (mins > 0) { o.pinnedGmv += p.gmv; o.pinnedLives++; }
         if (wk) bucketAdd(o._w, wk, p, mins);
         if (mo) bucketAdd(o._m, mo, p, mins);
       }
@@ -289,13 +314,15 @@ export default async function handler(req, res) {
       .sort((a, b) => String(a.key).localeCompare(String(b.key)))
       .map((b) => ({
         key: b.key, gmv: Math.round(b.gmv), unitsSold: b.unitsSold, pinMinutes: b.pinMinutes, lives: b.lives,
-        gmvPerPinHour: b.pinMinutes > 0 ? Math.round(b.gmv / (b.pinMinutes / 60)) : null,
+        gmvPerPinHour: b.pinMinutes > 0 ? Math.round(b.pinnedGmv / (b.pinMinutes / 60)) : null,
       }));
     const products = Object.values(byProduct).sort((a, b) => b.gmv - a.gmv).map((p) => {
       const { _w, _m, ...rest } = p;
       return {
-        ...rest, gmv: Math.round(p.gmv),
-        gmvPerPinHour: p.pinMinutes > 0 ? Math.round(p.gmv / (p.pinMinutes / 60)) : null,
+        ...rest, gmv: Math.round(p.gmv), pinnedGmv: Math.round(p.pinnedGmv),
+        // 紹介していない配信での売上（カタログ経由など）。「紹介しなくても売れる商品」の目安になる
+        unpinnedGmv: Math.round(p.gmv - p.pinnedGmv),
+        gmvPerPinHour: p.pinMinutes > 0 ? Math.round(p.pinnedGmv / (p.pinMinutes / 60)) : null,
         byWeek: finishBuckets(_w),
         byMonth: finishBuckets(_m),
       };
@@ -305,7 +332,8 @@ export default async function handler(req, res) {
     const liveAgg = lives.reduce((a, l) => {
       a.attributed += l.attributedGmv || 0;
       a.units += l.unitsTotal || 0; a.durationSec += l.durationSec || 0;
-      if (l.inLiveGmv != null && l.afterGmv != null) { a.inLive += l.inLiveGmv; a.after += l.afterGmv; a.splitBase += l.attributedGmv || 0; a.splitCount++; }
+      // API基準の配信は「配信後」が構造的に0になるため、後追い率の集計からは外す
+      if (l.basis === "画面(派生GMV)" && l.inLiveGmv != null && l.afterGmv != null) { a.inLive += l.inLiveGmv; a.after += l.afterGmv; a.splitBase += l.attributedGmv || 0; a.splitCount++; }
       return a;
     }, { attributed: 0, inLive: 0, after: 0, units: 0, durationSec: 0, splitBase: 0, splitCount: 0 });
 
@@ -328,11 +356,12 @@ export default async function handler(req, res) {
         gmvPerLiveHour: liveAgg.durationSec ? Math.round(liveAgg.attributed / (liveAgg.durationSec / 3600)) : null,
       },
       progress: { totalLivesInRange: inRange.length, loaded: lives.length, pending, computedThisRequest: computed,
-                  hint: pending > 0 ? "未計算の配信があります。同じURLをもう一度開くと続きが計算されます（数回で全件そろいます）。" : "全配信の明細がそろっています。" },
-      breakdown, lives, products,
+                  hint: pending > 0 ? "未計算の配信があります（自動で続きを計算します）" : "" },
+      breakdown, products,
+      lives: lives.map(({ _products, _pins, ...rest }) => rest),
       videos: videos && videos.ok ? { total: videos.totalCount, fetched: videos.fetched, gmvTotal: videos.gmvTotal, unitsTotal: videos.unitsTotal, byCreator: videos.byCreator, top: videos.videos.slice(0, 30) } : videos,
       sessionsStored: Object.keys(sessions || {}).length,
-      note: lives.length === 0 ? "LIVEセッションが未登録です。毎日のスケジュールタスク（ブラウザ収集）で /api/live_ingest に登録してください。" : undefined,
+      note: lives.length === 0 ? "この期間の配信データがありません。収集スクリプト（scripts/collect_lives.mjs）が動いているか確認してください。" : undefined,
     });
   } catch (e) {
     res.status(200).json({ ok: false, error: String((e && e.message) || e) });

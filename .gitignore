@@ -14,3 +14,5 @@ scripts/collect_lives.log
 *.mp4
 *.mov
 *.mkv
+scripts/launchd.out.log
+scripts/launchd.err.log
