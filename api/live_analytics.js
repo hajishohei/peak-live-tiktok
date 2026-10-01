@@ -241,7 +241,7 @@ export default async function handler(req, res) {
         afterRate: (attributed > 0 && after != null) ? Math.round((after / attributed) * 1000) / 10 : null,
         basis: useScreen ? "画面(派生GMV)" : "API(直接GMV)",
         unitsTotal: num(s.units) || d.unitsTotal || 0,
-        gmvPerMin: durationSec ? Math.round(attributed / (durationSec / 60)) : null,
+        gmvPerHour: durationSec ? Math.round(attributed / (durationSec / 3600)) : null,
         // APIの生値（突き合わせ用）
         apiDirectGmv: Math.round(d.attributedGmv), apiInLiveGmv: d.inLiveGmv, apiUnits: d.unitsTotal || 0,
         // 画面の派生GMVとAPIの直接GMVの差。プラスなら「配信後に売れた分」と解釈できるが、
@@ -270,7 +270,7 @@ export default async function handler(req, res) {
     }
     const products = Object.values(byProduct).sort((a, b) => b.gmv - a.gmv).map((p) => ({
       ...p, gmv: Math.round(p.gmv),
-      gmvPerPinMin: p.pinMinutes > 0 ? Math.round(p.gmv / p.pinMinutes) : null,
+      gmvPerPinHour: p.pinMinutes > 0 ? Math.round(p.gmv / (p.pinMinutes / 60)) : null,
     }));
 
     // 後追い比率は「配信中/後追いが両方出せた配信」だけで集計する（片方欠けた配信を混ぜると率が狂うため）
@@ -297,7 +297,7 @@ export default async function handler(req, res) {
         liveCount: lives.length,
         liveTotalMin: Math.round(liveAgg.durationSec / 60),
         liveUnits: liveAgg.units,
-        gmvPerLiveMin: liveAgg.durationSec ? Math.round(liveAgg.attributed / (liveAgg.durationSec / 60)) : null,
+        gmvPerLiveHour: liveAgg.durationSec ? Math.round(liveAgg.attributed / (liveAgg.durationSec / 3600)) : null,
       },
       progress: { totalLivesInRange: inRange.length, loaded: lives.length, pending, computedThisRequest: computed,
                   hint: pending > 0 ? "未計算の配信があります。同じURLをもう一度開くと続きが計算されます（数回で全件そろいます）。" : "全配信の明細がそろっています。" },

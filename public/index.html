@@ -618,7 +618,7 @@ tr.rowActive .drillbtn { background:#2f6f4f; color:#fff; }
       <div class="kpi"><div class="label">動画経由GMV</div><div class="val" id="lvGmvVideo" style="color:#2f6f4f">—</div><div class="delta" id="lvGmvVideoSub">—</div></div>
       <div class="kpi"><div class="label">商品カード経由GMV</div><div class="val" id="lvGmvCard">—</div><div class="delta" id="lvGmvCardSub">LIVE・動画を経由しない購入</div></div>
       <div class="kpi"><div class="label">配信本数 / 合計時間</div><div class="val" id="lvCount">—</div><div class="delta" id="lvCountSub">—</div></div>
-      <div class="kpi"><div class="label">配信1分あたりGMV</div><div class="val" id="lvPerMin">—</div><div class="delta">LIVE帰属GMV ÷ 配信時間</div></div>
+      <div class="kpi"><div class="label">配信1時間あたりGMV</div><div class="val" id="lvPerMin">—</div><div class="delta">LIVE帰属GMV ÷ 配信時間</div></div>
     </div>
 
     <div class="card">
@@ -2659,7 +2659,7 @@ function lvRender(){
   set("lvGmvCardSub", b.ok? `全体の${sh.productCard}%`:"LIVE・動画を経由しない購入");
   set("lvCount", (s.liveCount||0)+"本");
   set("lvCountSub", `合計 ${Math.floor((s.liveTotalMin||0)/60)}時間${(s.liveTotalMin||0)%60}分 / 販売 ${s.liveUnits||0}個`);
-  set("lvPerMin", s.gmvPerLiveMin!=null? yen(s.gmvPerLiveMin):"—");
+  set("lvPerMin", s.gmvPerLiveHour!=null? yen(s.gmvPerLiveHour):"—");
   const pr=j.progress||{};
   const prog=document.getElementById("lvProgress");
   const pd=(j.period||{});
@@ -2682,14 +2682,14 @@ function lvRender(){
         <td style="text-align:right">${diffTxt}${rate!=null?`<div class="muted" style="font-size:11px">${rate}%</div>`:""}</td>
         <td style="text-align:right">${l.unitsTotal||l.apiUnits||0}個</td>
         <td style="text-align:right">${(l.viewers||0).toLocaleString("ja-JP")}</td>
-        <td style="text-align:right">${l.gmvPerMin!=null?yen(l.gmvPerMin):"—"}</td>
+        <td style="text-align:right">${l.gmvPerHour!=null?yen(l.gmvPerHour):"—"}</td>
         <td style="text-align:right">${(l.pins||[]).length? (l.pins||[]).length+"件":"<span class='muted'>未収集</span>"}</td>
       </tr>`;
     }).join("");
     lb.innerHTML = rows? `<table><thead><tr>
       <th>配信日</th><th style="text-align:right">配信時間</th><th style="text-align:right">画面GMV</th>
       <th style="text-align:right">API直接GMV</th><th style="text-align:right">差（後追いの目安）</th>
-      <th style="text-align:right">販売数</th><th style="text-align:right">視聴者</th><th style="text-align:right">1分あたり</th><th style="text-align:right">紹介時間</th>
+      <th style="text-align:right">販売数</th><th style="text-align:right">視聴者</th><th style="text-align:right">1時間あたり</th><th style="text-align:right">紹介時間</th>
       </tr></thead><tbody>${rows}</tbody></table>` : `<div class="muted">配信データがありません。</div>`;
   }
 
@@ -2705,12 +2705,12 @@ function lvRender(){
       <td style="text-align:right">${(p.impressions||0).toLocaleString("ja-JP")}</td>
       <td style="text-align:right">${p.addToCart||0}</td>
       <td style="text-align:right">${p.pinMinutes? p.pinMinutes+"分":"<span class='muted'>—</span>"}</td>
-      <td style="text-align:right">${p.gmvPerPinMin!=null? yen(p.gmvPerPinMin):"<span class='muted'>—</span>"}</td>
+      <td style="text-align:right">${p.gmvPerPinHour!=null? yen(p.gmvPerPinHour):"<span class='muted'>—</span>"}</td>
     </tr>`).join("");
     pb.innerHTML = rows? `<table><thead><tr>
       <th style="text-align:right">#</th><th>商品</th><th style="text-align:right">登場配信数</th><th style="text-align:right">GMV</th>
       <th style="text-align:right">販売数</th><th style="text-align:right">表示回数</th><th style="text-align:right">カート追加</th>
-      <th style="text-align:right">紹介時間</th><th style="text-align:right">1分あたりGMV</th>
+      <th style="text-align:right">紹介時間</th><th style="text-align:right">1時間あたりGMV</th>
       </tr></thead><tbody>${rows}</tbody></table>` : `<div class="muted">—</div>`;
   }
 
