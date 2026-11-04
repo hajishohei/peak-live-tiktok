@@ -436,7 +436,7 @@ function trimOrder(o) {
   };
 }
 function blobConfigured() {
-  // R2バインディング(DATA)の有無で判定
+  // KVバインディング(DATA)の有無で判定
   return r2Configured();
 }
 async function loadSnapshot() {
@@ -1415,8 +1415,8 @@ export default async function handler(req, res) {
     return;
   }
   if (req.method !== "POST") { res.status(405).json({ error: "POST only" }); return; }
-  if (!env.key || !env.secret || (!env.token && !env.refresh)) {
-    res.status(500).json({ error: "TTS_APP_KEY / TTS_APP_SECRET と、TTS_ACCESS_TOKEN または TTS_REFRESH_TOKEN のいずれかが未設定です" });
+  if (!env.key || !env.secret) {
+    res.status(500).json({ error: "TTS_APP_KEY / TTS_APP_SECRET が未設定です（トークンは KV の tts-token-state.json から読みます）" });
     return;
   }
   let body = req.body;

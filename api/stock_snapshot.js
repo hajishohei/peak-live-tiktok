@@ -23,14 +23,14 @@ async function saveHist(obj) {
 export default async function handler(req, res) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   if (!blobConfigured()) {
-    res.status(200).json({ ok: false, error: "R2未設定（wrangler.jsonc の DATA バインディング）" }); return;
+    res.status(200).json({ ok: false, error: "KV未設定（wrangler.jsonc の DATA バインディング）" }); return;
   }
   const env = {
     store: process.env.TTS_SHOP || "",
     key: process.env.TTS_APP_KEY, secret: process.env.TTS_APP_SECRET,
     token: process.env.TTS_ACCESS_TOKEN, refresh: process.env.TTS_REFRESH_TOKEN,
   };
-  if (!env.key || !env.secret || (!env.token && !env.refresh)) { res.status(200).json({ ok: false, error: "TTS認証情報が未設定" }); return; }
+  if (!env.key || !env.secret) { res.status(200).json({ ok: false, error: "TTS認証情報が未設定" }); return; }
   // JSTの当日
   const date = (req.query && req.query.date) || new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
   try {

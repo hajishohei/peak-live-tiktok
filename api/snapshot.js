@@ -12,12 +12,12 @@ export default async function handler(req, res) {
     token: process.env.TTS_ACCESS_TOKEN,
     refresh: process.env.TTS_REFRESH_TOKEN,
   };
-  if (!env.key || !env.secret || (!env.token && !env.refresh)) {
+  if (!env.key || !env.secret) {
     res.status(200).json({ ok: false, error: "TTS認証情報が未設定です" });
     return;
   }
   if (!blobConfigured()) {
-    res.status(200).json({ ok: false, error: "R2が未設定です。Cloudflare で R2 バケット peak-live-tiktok-data を作成し、wrangler.jsonc の DATA バインディングで接続してください。" });
+    res.status(200).json({ ok: false, error: "保存先（KV）が未設定です。wrangler.jsonc の DATA バインディングを確認してください。" });
     return;
   }
   const t0 = Date.now();

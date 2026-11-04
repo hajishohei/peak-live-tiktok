@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     key: process.env.TTS_APP_KEY, secret: process.env.TTS_APP_SECRET,
     token: process.env.TTS_ACCESS_TOKEN, refresh: process.env.TTS_REFRESH_TOKEN,
   };
-  if (!env.key || !env.secret || (!env.token && !env.refresh)) { res.status(200).json({ ok: false, error: "TTS認証情報が未設定" }); return; }
+  if (!env.key || !env.secret) { res.status(200).json({ ok: false, error: "TTS認証情報が未設定" }); return; }
   const days = Math.min(180, Math.max(1, Number((req.query && req.query.days) || 30)));
   const status = (req.query && req.query.status) || "";
   const now = Math.floor(Date.now() / 1000);

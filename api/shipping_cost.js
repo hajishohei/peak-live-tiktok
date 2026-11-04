@@ -14,7 +14,7 @@ function numOrZero(v) {
 export default async function handler(req, res) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   if (!blobConfigured()) {
-    res.status(200).json({ ok: false, error: "R2未設定（wrangler.jsonc の DATA バインディング）" });
+    res.status(200).json({ ok: false, error: "KV未設定（wrangler.jsonc の DATA バインディング）" });
     return;
   }
   let p;
