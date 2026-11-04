@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "peak-live-tiktok",
+  "keep_vars": true,
   "main": "src/worker.js",
   "compatibility_date": "2025-10-01",
   "compatibility_flags": ["nodejs_compat"],
