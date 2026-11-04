@@ -50,11 +50,11 @@ Partner Center: https://partner.tiktokshop.com/
 ## セットアップ手順（開発者）
 
 ### 1. Cloudflare Workers にデプロイ
-- 構成: `src/worker.js`（Basic認証＋`/api/<name>` を `api/*.js` へ振り分け）、`src/adapter.js`（Vercel形式の req/res 変換）、`public/` は Workers Static Assets、保存先は R2（`lib/blob.js`、バインディング `DATA` → バケット `peak-live-tiktok-data`）。設定は `wrangler.jsonc`。
-- Cloudflare → R2 でバケット `peak-live-tiktok-data` を作成 → Workers & Pages → Create → GitHub リポジトリを接続（Build command なし、Deploy command `npx wrangler deploy`）。
+- 構成: `src/worker.js`（Basic認証＋`/api/<name>` を `api/*.js` へ振り分け）、`src/adapter.js`（Vercel形式の req/res 変換）、`public/` は Workers Static Assets、保存先は Workers KV（`lib/blob.js`、バインディング `DATA`。カード登録不要）。設定は `wrangler.jsonc`。
+- Cloudflare → Workers KV で名前空間 `peak-live-tiktok-data` を作成し、IDを `wrangler.jsonc` に記入 → Workers & Pages → Create → GitHub リポジトリを接続（Build command なし、Deploy command `npx wrangler deploy`）。
 - 発行URL（`https://peak-live-tiktok.<account>.workers.dev`）を控える。
 - ローカル確認: `.dev.vars`（gitignore済み）に `DASH_USER` / `DASH_PASS` 等を書き `npx wrangler dev --local`。
-- Vercel Blob からの移行: `scripts/export_vercel_blob.mjs` で `blob-export/` に保存 → R2 バケットへ同名でアップロード。
+- Vercel Blob からの移行: 旧データ（tts-*.json）を `IMPORT_TOKEN` を設定した状態で `PUT /_import/<ファイル名>` に送る（移行後は `IMPORT_TOKEN` を消す）。
 
 ### 2. 環境変数を設定（Workers → Settings → Variables and Secrets。`DASH_USER` / `DASH_PASS` / `LIVE_INGEST_KEY` / `COLLECT_KEY` / 任意で `RANKING_URL` も）
 | 名前 | 値 |

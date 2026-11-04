@@ -54,7 +54,7 @@ function basicAuth(request, env) {
   });
 }
 
-// 旧 Vercel Blob → R2 の一時移行口。IMPORT_TOKEN を設定している間だけ有効（移行後は変数を消す）。
+// 旧 Vercel Blob → KV の一時移行口。IMPORT_TOKEN を設定している間だけ有効（移行後は変数を消す）。
 // Vercel のダッシュボード（ブラウザ）から PUT で流し込むため、vercel.com からの CORS を許可する。
 const IMPORT_CORS = {
   "Access-Control-Allow-Origin": "https://vercel.com",
@@ -69,7 +69,7 @@ async function importBlob(request, env, key) {
   }
   const body = await request.text();
   JSON.parse(body); // 壊れたJSONは入れない
-  await env.DATA.put(key, body, { httpMetadata: { contentType: "application/json" } });
+  await env.DATA.put(key, body);
   return new Response(JSON.stringify({ ok: true, key, bytes: body.length }), { headers: { ...IMPORT_CORS, "Content-Type": "application/json" } });
 }
 
