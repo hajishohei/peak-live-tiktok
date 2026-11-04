@@ -54,10 +54,30 @@ function basicAuth(request, env) {
   });
 }
 
+// 旧 Vercel Blob → R2 の一時移行口。IMPORT_TOKEN を設定している間だけ有効（移行後は変数を消す）。
+// Vercel のダッシュボード（ブラウザ）から PUT で流し込むため、vercel.com からの CORS を許可する。
+const IMPORT_CORS = {
+  "Access-Control-Allow-Origin": "https://vercel.com",
+  "Access-Control-Allow-Methods": "PUT, OPTIONS",
+  "Access-Control-Allow-Headers": "content-type, x-import-token",
+};
+async function importBlob(request, env, key) {
+  if (!env.IMPORT_TOKEN) return new Response("Not Found", { status: 404 });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: IMPORT_CORS });
+  if (request.method !== "PUT" || request.headers.get("x-import-token") !== env.IMPORT_TOKEN || !/^tts-[a-z-]+\.json$/.test(key)) {
+    return new Response("forbidden", { status: 403, headers: IMPORT_CORS });
+  }
+  const body = await request.text();
+  JSON.parse(body); // 壊れたJSONは入れない
+  await env.DATA.put(key, body, { httpMetadata: { contentType: "application/json" } });
+  return new Response(JSON.stringify({ ok: true, key, bytes: body.length }), { headers: { ...IMPORT_CORS, "Content-Type": "application/json" } });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname.slice(1);
+    if (path.startsWith("_import/")) return importBlob(request, env, path.slice("_import/".length));
     if (!PUBLIC_PREFIXES.some((p) => path.startsWith(p))) {
       const denied = basicAuth(request, env);
       if (denied) return denied;
