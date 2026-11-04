@@ -4,6 +4,7 @@
 // GET例: /api/live_ingest?date=2026-06-28&sec=12846&liveCount=2&key=xxx
 //        （sec の代わりに hours=3.5 や hms=3時間34分6秒 でも可）
 // POST(JSON): { date, sec?|hours?|hms?, liveCount?, key? }
+import { blobConfigured } from "../lib/blob.js";
 import { saveLiveDaily, loadLiveDaily, saveLiveDailyBulk } from "./query.js";
 
 function hmsToSec(s) {
@@ -14,8 +15,8 @@ function hmsToSec(s) {
 
 export default async function handler(req, res) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
-  if (!process.env.BLOB_STORE_ID && !process.env.BLOB_READ_WRITE_TOKEN) {
-    res.status(200).json({ ok: false, error: "Vercel Blob未設定" }); return;
+  if (!blobConfigured()) {
+    res.status(200).json({ ok: false, error: "R2未設定（wrangler.jsonc の DATA バインディング）" }); return;
   }
   let p;
   if (req.method === "POST") {
@@ -27,7 +28,7 @@ export default async function handler(req, res) {
   // このエンドポイントはBasic認証(middleware.js)の対象外（外部ボットが叩くため）。
   // 代わりに LIVE_INGEST_KEY を読み取り(list)含む全操作で必須とする。
   const need = process.env.LIVE_INGEST_KEY;
-  if (!need) { res.status(200).json({ ok: false, error: "LIVE_INGEST_KEY が未設定です。Vercelの環境変数に設定してください（Basic認証の対象外エンドポイントのため必須）" }); return; }
+  if (!need) { res.status(200).json({ ok: false, error: "LIVE_INGEST_KEY が未設定です。Cloudflare Workers の環境変数に設定してください（Basic認証の対象外エンドポイントのため必須）" }); return; }
   if (String(p.key || "") !== String(need)) { res.status(200).json({ ok: false, error: "認証キーが違います" }); return; }
   // 読み取り専用モード（書き込まない）: 現在保存されている日次データを一覧で返す。
   if (p.list != null || p.peek != null) {

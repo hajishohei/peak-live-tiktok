@@ -1,6 +1,7 @@
 // 履歴スナップショット更新エンドポイント: /api/snapshot
 // 全注文(約400日)を取得してVercel Blobに「冷凍保存」する。ダッシュボードの「履歴を更新」ボタンから呼ばれる。
 // 以降の /api/query は直近のみ取得＋このスナップショットと合体するため高速になる。
+import { blobConfigured } from "../lib/blob.js";
 import { buildAndSaveSnapshot, getShop, getAllProducts } from "./query.js";
 
 export default async function handler(req, res) {
@@ -15,8 +16,8 @@ export default async function handler(req, res) {
     res.status(200).json({ ok: false, error: "TTS認証情報が未設定です" });
     return;
   }
-  if (!process.env.BLOB_STORE_ID && !process.env.BLOB_READ_WRITE_TOKEN) {
-    res.status(200).json({ ok: false, error: "Vercel Blobが未設定です。VercelのStorageでBlobストアを作成し、プロジェクトに接続してください。" });
+  if (!blobConfigured()) {
+    res.status(200).json({ ok: false, error: "R2が未設定です。Cloudflare で R2 バケット peak-live-tiktok-data を作成し、wrangler.jsonc の DATA バインディングで接続してください。" });
     return;
   }
   const t0 = Date.now();

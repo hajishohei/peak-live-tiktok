@@ -38,7 +38,7 @@ import { SD_MASTER } from "../lib/sd_costs.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
-const DASH = "https://peak-live-tiktok.vercel.app";
+const DASH = process.env.DASH_URL || "https://peak-live-tiktok.vercel.app"; // Cloudflare移行後は新URLに書き換える（または DASH_URL で上書き）
 const API = "https://api.typesafe.ai/v1/systemone";
 
 const ADOPT_CONFIDENCE = 0.85;  // これ以上なら自動採用

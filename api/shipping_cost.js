@@ -2,6 +2,7 @@
 // 請求書には月合計しか書かれていない前提で、管理費(固定費)・発送手数料(変動費)・配送料(変動費)を月ごとに保存する。
 // 実際の按分計算（1件あたり単価・選択期間への日割り/注文数割り）は api/query.js の computeShippingCost が行う。
 // このダッシュボードはBasic認証(middleware.js)配下なので、live_ingestのような別キー保護は不要。
+import { blobConfigured } from "../lib/blob.js";
 import { saveShippingMonthly, loadShippingMonthly, deleteShippingMonthly } from "./query.js";
 
 function numOrZero(v) {
@@ -12,8 +13,8 @@ function numOrZero(v) {
 
 export default async function handler(req, res) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
-  if (!process.env.BLOB_STORE_ID && !process.env.BLOB_READ_WRITE_TOKEN) {
-    res.status(200).json({ ok: false, error: "Vercel Blob未設定" });
+  if (!blobConfigured()) {
+    res.status(200).json({ ok: false, error: "R2未設定（wrangler.jsonc の DATA バインディング）" });
     return;
   }
   let p;

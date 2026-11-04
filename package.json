@@ -2,14 +2,13 @@
   "name": "peak-tokyo-tiktok-live-dashboard",
   "version": "1.0.0",
   "private": true,
-  "description": "Peak TOKYO ライブ売上ダッシュボード（TikTok Shop API・Vercel）",
+  "description": "Peak TOKYO ライブ売上ダッシュボード（TikTok Shop API・Cloudflare Workers）",
   "engines": {
     "node": ">=18"
   },
-  "dependencies": {
-    "@vercel/blob": "^2.5.0"
-  },
   "devDependencies": {
-    "playwright": "^1.63.0"
+    "@vercel/blob": "^2.8.2",
+    "playwright": "^1.63.0",
+    "wrangler": "^4.157.0"
   }
 }

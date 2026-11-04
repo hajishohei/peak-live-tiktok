@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     // 合言葉の確認。未設定のまま公開しない（fail closed）。
     const need = process.env.COLLECT_KEY;
     if (!need) {
-      res.status(200).json({ ok: false, error: "COLLECT_KEY が未設定です。Vercelの環境変数に設定してください（このエンドポイントはBasic認証の対象外のため必須）" });
+      res.status(200).json({ ok: false, error: "COLLECT_KEY が未設定です。Cloudflare Workers の環境変数に設定してください（このエンドポイントはBasic認証の対象外のため必須）" });
       return;
     }
     let bodyForKey = req.body;

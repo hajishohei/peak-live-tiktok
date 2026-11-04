@@ -16,3 +16,9 @@ scripts/collect_lives.log
 *.mkv
 scripts/launchd.out.log
 scripts/launchd.err.log
+
+# Cloudflare Workers（ローカル開発用の秘密情報・キャッシュ）
+.dev.vars*
+.wrangler/
+# Vercel Blob → R2 移行時のエクスポート先（業務データ）
+blob-export/

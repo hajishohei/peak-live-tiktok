@@ -7,6 +7,7 @@
 //   3. multipart 以外なら body(JSON) を末尾に付与
 //   4. APP_SECRET で前後を包む → HMAC-SHA256 → 16進小文字
 import crypto from "crypto";
+import { blobConfigured as r2Configured } from "../lib/blob.js";
 import { SD_MASTER } from "../lib/sd_costs.js";
 import { LIVE_HOURS } from "../lib/live_hours.js";
 import { PURCHASES, PURCHASES_META } from "../lib/purchases.js";
@@ -198,7 +199,7 @@ async function loadTokenStateFromBlob() {
   tokenLoaded = true;
   if (!blobConfigured()) return;
   try {
-    const { get } = await import("@vercel/blob");
+    const { get } = await import("../lib/blob.js");
     const res = await get(TOKEN_BLOB_PATH, { access: "private" });
     if (!res || res.statusCode !== 200 || !res.stream) return;
     const j = JSON.parse(await new Response(res.stream).text());
@@ -208,7 +209,7 @@ async function loadTokenStateFromBlob() {
 async function saveTokenStateToBlob() {
   if (!blobConfigured() || !tokenState) return;
   try {
-    const { put } = await import("@vercel/blob");
+    const { put } = await import("../lib/blob.js");
     await put(TOKEN_BLOB_PATH, JSON.stringify({ access: tokenState.access, exp: tokenState.exp, refresh: tokenState.refresh, savedAt: Date.now() }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
   } catch (e) { /* 保存失敗は無視（次回再試行） */ }
 }
@@ -435,14 +436,14 @@ function trimOrder(o) {
   };
 }
 function blobConfigured() {
-  // 新仕様(OIDC)はBLOB_STORE_ID、旧仕様は静的トークンで判定
-  return !!(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN);
+  // R2バインディング(DATA)の有無で判定
+  return r2Configured();
 }
 async function loadSnapshot() {
   if (snapMem && Date.now() - snapMem._ts < ORDER_TTL_MS) return snapMem;
   if (!blobConfigured()) return null;
   try {
-    const { get } = await import("@vercel/blob");
+    const { get } = await import("../lib/blob.js");
     const res = await get(SNAP_PATH, { access: "private" });
     if (!res || res.statusCode !== 200 || !res.stream) return null;
     const text = await new Response(res.stream).text();
@@ -453,7 +454,7 @@ async function loadSnapshot() {
 }
 async function saveSnapshotData(data) {
   const payload = { schemaVersion: SNAPSHOT_SCHEMA, ...data }; // H-5: 版数を必ず記録
-  const { put } = await import("@vercel/blob");
+  const { put } = await import("../lib/blob.js");
   await put(SNAP_PATH, JSON.stringify(payload), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
   snapMem = { builtAt: data.builtAt, cutoffTs: data.cutoffTs, orders: data.orders, schemaVersion: SNAPSHOT_SCHEMA, _ts: Date.now() };
 }
@@ -475,7 +476,7 @@ async function loadLiveDaily() {
   if (liveDailyMem && Date.now() - liveDailyMem._ts < 5 * 60 * 1000) return liveDailyMem.daily;
   if (!blobConfigured()) return {};
   try {
-    const { get } = await import("@vercel/blob");
+    const { get } = await import("../lib/blob.js");
     const res = await get(LIVE_DAILY_PATH, { access: "private" });
     if (!res || res.statusCode !== 200 || !res.stream) { liveDailyMem = { daily: {}, _ts: Date.now() }; return {}; }
     const j = JSON.parse(await new Response(res.stream).text());
@@ -486,7 +487,7 @@ async function loadLiveDaily() {
 async function saveLiveDaily(date, rec) {
   let cur = {}; try { cur = await loadLiveDaily(); } catch (e) {}
   const daily = { ...cur, [date]: rec };
-  const { put } = await import("@vercel/blob");
+  const { put } = await import("../lib/blob.js");
   await put(LIVE_DAILY_PATH, JSON.stringify({ updated: Date.now(), daily }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
   liveDailyMem = { daily, _ts: Date.now() };
   return Object.keys(daily).length;
@@ -501,7 +502,7 @@ async function loadLiveSessions() {
   if (liveSessionsMem && Date.now() - liveSessionsMem._ts < 5 * 60 * 1000) return liveSessionsMem.sessions;
   if (!blobConfigured()) return {};
   try {
-    const { get } = await import("@vercel/blob");
+    const { get } = await import("../lib/blob.js");
     const res = await get(LIVE_SESSIONS_PATH, { access: "private" });
     if (!res || res.statusCode !== 200 || !res.stream) { liveSessionsMem = { sessions: {}, _ts: Date.now() }; return {}; }
     const j = JSON.parse(await new Response(res.stream).text());
@@ -538,7 +539,7 @@ async function saveLiveSessions(recs) {
     };
     saved++;
   }
-  const { put } = await import("@vercel/blob");
+  const { put } = await import("../lib/blob.js");
   await put(LIVE_SESSIONS_PATH, JSON.stringify({ updated: Date.now(), sessions }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
   liveSessionsMem = { sessions, _ts: Date.now() };
   return { saved, total: Object.keys(sessions).length };
@@ -553,7 +554,7 @@ async function loadLiveCache() {
   if (liveCacheMem && Date.now() - liveCacheMem._ts < 5 * 60 * 1000) return liveCacheMem.items;
   if (!blobConfigured()) return {};
   try {
-    const { get } = await import("@vercel/blob");
+    const { get } = await import("../lib/blob.js");
     const res = await get(LIVE_CACHE_PATH, { access: "private" });
     if (!res || res.statusCode !== 200 || !res.stream) { liveCacheMem = { items: {}, _ts: Date.now() }; return {}; }
     const j = JSON.parse(await new Response(res.stream).text());
@@ -562,7 +563,7 @@ async function loadLiveCache() {
   } catch (e) { return {}; }
 }
 async function saveLiveCache(items) {
-  const { put } = await import("@vercel/blob");
+  const { put } = await import("../lib/blob.js");
   await put(LIVE_CACHE_PATH, JSON.stringify({ updated: Date.now(), items }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
   liveCacheMem = { items, _ts: Date.now() };
   return Object.keys(items).length;
@@ -574,7 +575,7 @@ async function saveLiveDailyBulk(recMap, replaceMonth) {
   const daily = { ...cur };
   if (replaceMonth) { for (const k of Object.keys(daily)) { if (k.slice(0, 7) === replaceMonth) delete daily[k]; } }
   for (const d of Object.keys(recMap || {})) daily[d] = recMap[d];
-  const { put } = await import("@vercel/blob");
+  const { put } = await import("../lib/blob.js");
   await put(LIVE_DAILY_PATH, JSON.stringify({ updated: Date.now(), daily }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
   liveDailyMem = { daily, _ts: Date.now() };
   return Object.keys(daily).length;
@@ -590,7 +591,7 @@ async function loadShippingMonthly() {
   if (shipMonthlyMem && Date.now() - shipMonthlyMem._ts < 5 * 60 * 1000) return shipMonthlyMem.monthly;
   if (!blobConfigured()) return {};
   try {
-    const { get } = await import("@vercel/blob");
+    const { get } = await import("../lib/blob.js");
     const res = await get(SHIP_PATH, { access: "private" });
     if (!res || res.statusCode !== 200 || !res.stream) { shipMonthlyMem = { monthly: {}, _ts: Date.now() }; return {}; }
     const j = JSON.parse(await new Response(res.stream).text());
@@ -601,7 +602,7 @@ async function loadShippingMonthly() {
 async function saveShippingMonthly(month, rec) {
   let cur = {}; try { cur = await loadShippingMonthly(); } catch (e) {}
   const monthly = { ...cur, [month]: rec };
-  const { put } = await import("@vercel/blob");
+  const { put } = await import("../lib/blob.js");
   await put(SHIP_PATH, JSON.stringify({ updated: Date.now(), monthly }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
   shipMonthlyMem = { monthly, _ts: Date.now() };
   return monthly;
@@ -610,7 +611,7 @@ async function deleteShippingMonthly(month) {
   let cur = {}; try { cur = await loadShippingMonthly(); } catch (e) {}
   const monthly = { ...cur };
   delete monthly[month];
-  const { put } = await import("@vercel/blob");
+  const { put } = await import("../lib/blob.js");
   await put(SHIP_PATH, JSON.stringify({ updated: Date.now(), monthly }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
   shipMonthlyMem = { monthly, _ts: Date.now() };
   return monthly;
@@ -679,7 +680,7 @@ function computeShippingCost(allOrders, sinceStr, untilStr, monthly) {
 
 // ===== 月次配信時間（harbor-ranking data.json から自動取得・手作業ゼロ） =====
 const BARBIE_ID = "7578682500742922257";
-const RANKING_URL = "https://harbor-ranking.vercel.app/data.json";
+const RANKING_URL = process.env.RANKING_URL || "https://harbor-ranking.vercel.app/data.json"; // 移行後は環境変数 RANKING_URL に新URLを設定
 let liveMonthlyMem = null;
 let RUNTIME_LIVE_MONTHLY = {};
 function hmsToSecQ(s) {
@@ -840,7 +841,7 @@ let prodCache = null;
 async function loadProductBlob() {
   if (!blobConfigured()) return null;
   try {
-    const { get } = await import("@vercel/blob");
+    const { get } = await import("../lib/blob.js");
     const res = await get(PROD_PATH, { access: "private" });
     if (!res || res.statusCode !== 200 || !res.stream) return null;
     return JSON.parse(await new Response(res.stream).text());
@@ -848,7 +849,7 @@ async function loadProductBlob() {
 }
 async function saveProductBlob(list) {
   try {
-    const { put } = await import("@vercel/blob");
+    const { put } = await import("../lib/blob.js");
     await put(PROD_PATH, JSON.stringify({ builtAt: Date.now(), products: list }), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
   } catch (e) { /* 保存失敗は無視 */ }
 }

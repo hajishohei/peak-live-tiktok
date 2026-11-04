@@ -4,12 +4,12 @@ TikTok Shop Open API から注文データを取得・集計するWebアプリ�
 
 ## コマンド
 
-- デプロイ: `deploy.command`（Vercel）
+- デプロイ: GitHub push → Cloudflare Workers Builds（`wrangler.jsonc`）。手動は `deploy.command`（`npx wrangler deploy`）。ローカルは `npx wrangler dev --local`
 - 進捗・仕様: `PROGRESS.md`、`原価在庫_設計書.md`、`配信時間連携_設計書.md` を必ず先に読む
 
 ## 構成
 
-- `public/index.html` 画面 / `api/` serverless functions / `lib/` 共通ロジック / `scripts/` 補助スクリプト / `data/` ローカルデータ
+- `public/index.html` 画面 / `src/worker.js` Workerエントリ（Basic認証・ルーティング） / `api/` ハンドラ（Vercel形式、`src/adapter.js` で変換） / `lib/` 共通ロジック / `scripts/` 補助スクリプト / `data/` ローカルデータ
 
 ## ルール
 

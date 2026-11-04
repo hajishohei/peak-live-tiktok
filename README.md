@@ -1,4 +1,4 @@
-# Peak TOKYO ライブ売上ダッシュボード（Vercel + TikTok Shop API）
+# Peak TOKYO ライブ売上ダッシュボード（Cloudflare Workers + TikTok Shop API）
 
 URLを開くたびに **TikTok Shop** から最新の注文データを取得して集計表示するライブWebアプリです。
 Shopify版（`peak-live-app`）の画面・構成をベースに、データ取得元を TikTok Shop Open API に置き換えたものです。
@@ -25,7 +25,7 @@ peak-live-tiktok/
 - アプリ（App）: Partner Center で作成
 - App Key / App Secret / Service ID: アプリ詳細ページで取得
 - スコープ（API権限）: 注文管理（Order）必須。商品・財務なども必要に応じて
-- Redirect URL: 本アプリの `https://<vercel-domain>/api/callback` を登録
+- Redirect URL: 本アプリの `https://<worker-domain>/api/callback` を登録
 
 Partner Center: https://partner.tiktokshop.com/
 
@@ -41,7 +41,7 @@ Partner Center: https://partner.tiktokshop.com/
    - **App secret**（= app_secret。「Manage app secret」から表示/再発行）
    - **Service ID**（= service_id。認可リンクに使用）
 5. **Basic Information → Manage API**（または「Access scope」）で、**Order（注文）系のスコープ**が有効か確認。無ければ申請（審査に2〜3営業日かかる場合あり）。
-6. **Redirect URL** 欄に `https://<vercel-domain>/api/callback` を入力して保存（手順はデプロイ後に確定）。
+6. **Redirect URL** 欄に `https://<worker-domain>/api/callback` を入力して保存（手順はデプロイ後に確定）。
 
 > メモ: App secret は一度しか平文表示されないことがあります。表示されたら安全な場所に控えてください（コードには書きません）。
 
@@ -49,11 +49,14 @@ Partner Center: https://partner.tiktokshop.com/
 
 ## セットアップ手順（開発者）
 
-### 1. Vercel にデプロイ
-このフォルダを GitHub に push → Vercel で Import（Framework: Other）→ Deploy。
-発行URL（例 `https://peak-live-tiktok.vercel.app`）を控える。
+### 1. Cloudflare Workers にデプロイ
+- 構成: `src/worker.js`（Basic認証＋`/api/<name>` を `api/*.js` へ振り分け）、`src/adapter.js`（Vercel形式の req/res 変換）、`public/` は Workers Static Assets、保存先は R2（`lib/blob.js`、バインディング `DATA` → バケット `peak-live-tiktok-data`）。設定は `wrangler.jsonc`。
+- Cloudflare → R2 でバケット `peak-live-tiktok-data` を作成 → Workers & Pages → Create → GitHub リポジトリを接続（Build command なし、Deploy command `npx wrangler deploy`）。
+- 発行URL（`https://peak-live-tiktok.<account>.workers.dev`）を控える。
+- ローカル確認: `.dev.vars`（gitignore済み）に `DASH_USER` / `DASH_PASS` 等を書き `npx wrangler dev --local`。
+- Vercel Blob からの移行: `scripts/export_vercel_blob.mjs` で `blob-export/` に保存 → R2 バケットへ同名でアップロード。
 
-### 2. Vercel 環境変数を設定
+### 2. 環境変数を設定（Workers → Settings → Variables and Secrets。`DASH_USER` / `DASH_PASS` / `LIVE_INGEST_KEY` / `COLLECT_KEY` / 任意で `RANKING_URL` も）
 | 名前 | 値 |
 |---|---|
 | `TTS_APP_KEY` | アプリの App key |
@@ -65,24 +68,24 @@ Partner Center: https://partner.tiktokshop.com/
 （`TTS_ACCESS_TOKEN` / `TTS_REFRESH_TOKEN` は手順4で取得後に追加）
 
 ### 3. Partner Center で Redirect URL を設定
-アプリ詳細の **Redirect URL** に `https://<vercel-domain>/api/callback` を登録して保存。
+アプリ詳細の **Redirect URL** に `https://<worker-domain>/api/callback` を登録して保存。
 
 ### 4. インストール（認可）してトークンを取得
 ブラウザで以下を開く:
 ```
-https://<vercel-domain>/api/auth
+https://<worker-domain>/api/auth
 ```
 → TikTok Shop の認可画面でショップを選び承認 → `/api/callback` に戻り、**access_token / refresh_token** が表示される。
 
 ### 5. トークンを環境変数に設定 → 再デプロイ
-Vercel 環境変数に追加:
+Workers の環境変数（Secret）に追加:
 | `TTS_ACCESS_TOKEN` | 手順4で表示された access_token |
 | `TTS_REFRESH_TOKEN` | 手順4で表示された refresh_token |
 
 → Redeploy。
 
 ### 6. 確認
-`https://<vercel-domain>/` を開く → ダッシュボードに売上・商品・日別・時間帯が表示されれば完了。
+`https://<worker-domain>/` を開く → ダッシュボードに売上・商品・日別・時間帯が表示されれば完了。
 
 ---
 
@@ -103,12 +106,12 @@ Vercel 環境変数に追加:
 ## トラブルシュート
 - `/api/query` が error → 応答メッセージを確認。`code`/`message` が TikTok 側のエラー。
 - 署名エラー（sign 不一致）→ `TTS_APP_SECRET` が正しいか、サーバー時刻ズレが無いか確認。
-- 認可で example.com 等に飛ぶ／コールバックが来ない → Partner Center の **Redirect URL** が Vercel の `/api/callback` になっているか確認。
+- 認可で example.com 等に飛ぶ／コールバックが来ない → Partner Center の **Redirect URL** が Workers の `/api/callback` になっているか確認。
 - access_token 失効（約7日）→ 再度 `/api/auth` で認可し直す（将来 refresh 自動化を実装予定）。
 - 注文が0件 → 期間・ショップ認可状態・Order スコープを確認。
 
-## アクセス制限（推奨）
-URLを知っていれば誰でも開けるため、社内限定にするなら Vercel の Deployment Protection（Vercel Authentication / Password）を有効化。
+## アクセス制限
+`src/worker.js` が全ページ・全APIに Basic 認証（`DASH_USER` / `DASH_PASS`、未設定なら503）をかける。例外は `/api/live_ingest`（`LIVE_INGEST_KEY`）・`/api/live_sessions`（`COLLECT_KEY`）・`/api/callback`・`/favicon.svg`。
 
 ## 今後の拡張（次フェーズ候補）
 - 顧客台帳の内部構築（長期間の注文取得 → 顧客単位の累計でLTV/全期間リピート率/ロイヤル顧客ランキングを Shopify版同等に）

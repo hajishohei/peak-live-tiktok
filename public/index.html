@@ -1380,8 +1380,8 @@ function renderSnapBar(){
   if(!s) return;
   if(!s.configured){
     bar.style.display="block"; bar.style.background="#fff4e5"; bar.style.border="1px solid #f0c27a";
-    bar.innerHTML=`⚡ 読み込み高速化（履歴スナップショット）が未設定です。VercelでBlobストアを接続すると大幅に速くなります。 <button class="mini" id="snapHelp">設定方法</button>`;
-    document.getElementById("snapHelp").addEventListener("click",()=>alert("Vercel → プロジェクト peak-live-tiktok → Storage → Create Database → Blob を作成 → このプロジェクトに接続。\n接続後に Redeploy すると、ここに『履歴を更新』ボタンが出ます。"));
+    bar.innerHTML=`⚡ 読み込み高速化（履歴スナップショット）が未設定です。Cloudflare R2 バケットを接続すると大幅に速くなります。 <button class="mini" id="snapHelp">設定方法</button>`;
+    document.getElementById("snapHelp").addEventListener("click",()=>alert("Cloudflare → R2 でバケット peak-live-tiktok-data を作成（wrangler.jsonc の DATA バインディング）。\n再デプロイすると、ここに『履歴を更新』ボタンが出ます。"));
     return;
   }
   const ageDays=s.builtAt?Math.floor((Date.now()-s.builtAt)/86400000):null;

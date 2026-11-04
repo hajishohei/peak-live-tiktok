@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "peak-live-tiktok",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // public/ を静的配信。Basic認証を静的ファイルにもかけるため、常にWorkerを先に通す。
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
+  // 旧 Vercel Blob の代わり（lib/blob.js から DATA として使う）
+  "r2_buckets": [{ "binding": "DATA", "bucket_name": "peak-live-tiktok-data" }],
+  "observability": { "enabled": true }
+}

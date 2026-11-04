@@ -38,7 +38,7 @@ export default async function handler(req, res) {
     if (at) {
       send(
         "✅ 成功！\n\n" +
-        "以下を Vercel の環境変数に設定して Redeploy してください:\n\n" +
+        "以下を Cloudflare Workers の環境変数（Secrets）に設定して再デプロイしてください:\n\n" +
         "── TTS_ACCESS_TOKEN ──\n" + at + "\n\n" +
         "── TTS_REFRESH_TOKEN ──\n" + (rt || "(なし)") + "\n\n" +
         "access_token 有効期限(秒): " + (data.access_token_expire_in || "?") + "\n" +

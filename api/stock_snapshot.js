@@ -2,27 +2,28 @@
 // その日のTTS実在庫（商品ごと）をBlobに追記保存する。日次で呼ぶと在庫推移が蓄積され、
 // 「在庫が増えた日＝発注（仕入れ）タイミング」を後から検知できる（個別ブランドの発注タイミング連動の土台）。
 // 過去の遡及はできないため、今日から記録を開始する。1日複数回呼んでもその日分は上書き。
+import { blobConfigured } from "../lib/blob.js";
 import { getShop, getAllProducts } from "./query.js";
 
 const HIST_PATH = "tts-stock-history.json";
 
 async function loadHist() {
   try {
-    const { get } = await import("@vercel/blob");
+    const { get } = await import("../lib/blob.js");
     const res = await get(HIST_PATH, { access: "private" });
     if (!res || res.statusCode !== 200 || !res.stream) return null;
     return JSON.parse(await new Response(res.stream).text());
   } catch (e) { return null; }
 }
 async function saveHist(obj) {
-  const { put } = await import("@vercel/blob");
+  const { put } = await import("../lib/blob.js");
   await put(HIST_PATH, JSON.stringify(obj), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
 }
 
 export default async function handler(req, res) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
-  if (!process.env.BLOB_STORE_ID && !process.env.BLOB_READ_WRITE_TOKEN) {
-    res.status(200).json({ ok: false, error: "Vercel Blob未設定" }); return;
+  if (!blobConfigured()) {
+    res.status(200).json({ ok: false, error: "R2未設定（wrangler.jsonc の DATA バインディング）" }); return;
   }
   const env = {
     store: process.env.TTS_SHOP || "",
