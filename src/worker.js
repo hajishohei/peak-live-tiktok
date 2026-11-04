@@ -61,8 +61,24 @@ const IMPORT_CORS = {
   "Access-Control-Allow-Methods": "PUT, OPTIONS",
   "Access-Control-Allow-Headers": "content-type, x-import-token",
 };
+// GET /_import?t=<IMPORT_TOKEN> … ダウンロード済みの tts-*.json を選んでまとめて送る画面
+const IMPORT_PAGE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>データ移行</title><body style="font-family:sans-serif;max-width:560px;margin:40px auto;padding:0 16px">
+<h2>peak-live データ移行</h2><p>「ダウンロード」フォルダの <b>tts-</b> で始まる7ファイルを全部選んでください。</p>
+<input type="file" id="f" multiple accept=".json"><ul id="o"></ul>
+<script>
+const t=new URLSearchParams(location.search).get("t");
+f.onchange=async()=>{for(const file of f.files){const li=document.createElement("li");li.textContent=file.name+" … 送信中";o.append(li);
+const name=file.name.replace(/ \\(\\d+\\)(?=\\.json$)/,"");
+const r=await fetch("/_import/"+encodeURIComponent(name),{method:"PUT",headers:{"x-import-token":t},body:await file.text()});
+li.textContent=name+(r.ok?" ✅ 完了":" ❌ 失敗 "+r.status);}};
+</script>`;
 async function importBlob(request, env, key) {
   if (!env.IMPORT_TOKEN) return new Response("Not Found", { status: 404 });
+  if (request.method === "GET" && key === "") {
+    if (new URL(request.url).searchParams.get("t") !== env.IMPORT_TOKEN) return new Response("forbidden", { status: 403 });
+    return new Response(IMPORT_PAGE, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+  }
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: IMPORT_CORS });
   if (request.method !== "PUT" || request.headers.get("x-import-token") !== env.IMPORT_TOKEN || !/^tts-[a-z-]+\.json$/.test(key)) {
     return new Response("forbidden", { status: 403, headers: IMPORT_CORS });
@@ -77,7 +93,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname.slice(1);
-    if (path.startsWith("_import/")) return importBlob(request, env, path.slice("_import/".length));
+    if (path === "_import" || path.startsWith("_import/")) return importBlob(request, env, decodeURIComponent(path.slice("_import/".length)));
     if (!PUBLIC_PREFIXES.some((p) => path.startsWith(p))) {
       const denied = basicAuth(request, env);
       if (denied) return denied;
