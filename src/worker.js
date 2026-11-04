@@ -19,8 +19,8 @@ const HANDLERS = {
 };
 
 // Basic認証をかけないパス（旧 middleware.js の matcher と同じ前方一致）
-//   api/live_ingest … 外部ボット用（LIVE_INGEST_KEY で保護）
-//   api/live_sessions … ローカル収集スクリプト用（COLLECT_KEY で保護）
+//   api/live_ingest … 合言葉 LIVE_INGEST_KEY、またはダッシュボードのBasic認証で可
+//   api/live_sessions … 合言葉 COLLECT_KEY、またはダッシュボードのBasic認証で可
 //   api/callback … TikTok OAuth のリダイレクト先
 //   favicon.svg
 const PUBLIC_PREFIXES = ["api/live_ingest", "api/live_sessions", "api/callback", "favicon.svg"];
@@ -94,15 +94,15 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname.slice(1);
     if (path === "_import" || path.startsWith("_import/")) return importBlob(request, env, decodeURIComponent(path.slice("_import/".length)));
-    if (!PUBLIC_PREFIXES.some((p) => path.startsWith(p))) {
-      const denied = basicAuth(request, env);
-      if (denied) return denied;
-    }
+    const isPublic = PUBLIC_PREFIXES.some((p) => path.startsWith(p));
+    // 公開パスでも Basic 認証が通っていれば「ダッシュボード利用者」として扱う（live_* は合言葉なしで可）
+    const dashAuthed = !basicAuth(request, env);
+    if (!isPublic && !dashAuthed) return basicAuth(request, env);
     const m = path.match(/^api\/([a-z_]+?)(?:\.js)?\/?$/);
     if (m) {
       const handler = HANDLERS[m[1]];
       if (!handler) return new Response("Not Found", { status: 404 });
-      return vercelAdapter(handler, request);
+      return vercelAdapter(handler, request, { dashAuthed });
     }
     return env.ASSETS.fetch(request);
   },

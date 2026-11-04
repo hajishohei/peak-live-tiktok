@@ -14,15 +14,16 @@ export default async function handler(req, res) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   try {
     // 合言葉の確認。未設定のまま公開しない（fail closed）。
+    // ダッシュボードのBasic認証が通っている（Chromeのスケジュールタスク）なら合言葉は不要
     const need = process.env.COLLECT_KEY;
-    if (!need) {
+    if (!req.dashAuthed && !need) {
       res.status(200).json({ ok: false, error: "COLLECT_KEY が未設定です。Cloudflare Workers の環境変数に設定してください（このエンドポイントはBasic認証の対象外のため必須）" });
       return;
     }
     let bodyForKey = req.body;
     if (typeof bodyForKey === "string") { try { bodyForKey = JSON.parse(bodyForKey); } catch (e) { bodyForKey = {}; } }
     const given = String((req.query && req.query.key) || (bodyForKey && bodyForKey.key) || "");
-    if (given !== String(need)) {
+    if (!req.dashAuthed && given !== String(need)) {
       res.status(200).json({ ok: false, error: "合言葉(key)が違います" });
       return;
     }

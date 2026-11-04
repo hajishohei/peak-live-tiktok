@@ -28,8 +28,8 @@ export default async function handler(req, res) {
   // このエンドポイントはBasic認証(middleware.js)の対象外（外部ボットが叩くため）。
   // 代わりに LIVE_INGEST_KEY を読み取り(list)含む全操作で必須とする。
   const need = process.env.LIVE_INGEST_KEY;
-  if (!need) { res.status(200).json({ ok: false, error: "LIVE_INGEST_KEY が未設定です。Cloudflare Workers の環境変数に設定してください（Basic認証の対象外エンドポイントのため必須）" }); return; }
-  if (String(p.key || "") !== String(need)) { res.status(200).json({ ok: false, error: "認証キーが違います" }); return; }
+  if (!req.dashAuthed && !need) { res.status(200).json({ ok: false, error: "LIVE_INGEST_KEY が未設定です。Cloudflare Workers の環境変数に設定してください（Basic認証の対象外エンドポイントのため必須）" }); return; }
+  if (!req.dashAuthed && String(p.key || "") !== String(need)) { res.status(200).json({ ok: false, error: "認証キーが違います" }); return; }
   // 読み取り専用モード（書き込まない）: 現在保存されている日次データを一覧で返す。
   if (p.list != null || p.peek != null) {
     try {

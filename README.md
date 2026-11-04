@@ -111,7 +111,7 @@ Workers の環境変数（Secret）に追加:
 - 注文が0件 → 期間・ショップ認可状態・Order スコープを確認。
 
 ## アクセス制限
-`src/worker.js` が全ページ・全APIに Basic 認証（`DASH_USER` / `DASH_PASS`、未設定なら503）をかける。例外は `/api/live_ingest`（`LIVE_INGEST_KEY`）・`/api/live_sessions`（`COLLECT_KEY`）・`/api/callback`・`/favicon.svg`。
+`src/worker.js` が全ページ・全APIに Basic 認証（`DASH_USER` / `DASH_PASS`、未設定なら503）をかける。例外は `/api/live_ingest`（`LIVE_INGEST_KEY` またはBasic認証）・`/api/live_sessions`（`COLLECT_KEY` またはBasic認証）・`/api/callback`・`/favicon.svg`。
 
 ## 今後の拡張（次フェーズ候補）
 - 顧客台帳の内部構築（長期間の注文取得 → 顧客単位の累計でLTV/全期間リピート率/ロイヤル顧客ランキングを Shopify版同等に）
@@ -121,4 +121,4 @@ Workers の環境変数（Secret）に追加:
 ## 定時実行
 
 - 在庫履歴: Workers の Cron（`wrangler.jsonc` の `triggers.crons`、毎日 23:50 JST）が `api/stock_snapshot` を呼び、KV `tts-stock-history.json` に追記する。
-- LIVE配信データ: Claude のスケジュールタスク（Chromeでセラーセンターを読む）が `api/live_sessions`（`COLLECT_KEY`）と `api/live_ingest`（`LIVE_INGEST_KEY`）に送る。
+- LIVE配信データ: Claude のスケジュールタスク（Chromeでセラーセンターを読む）が `api/live_sessions` と `api/live_ingest` に送る（ChromeのBasic認証ログインで通る。合言葉は不要）。

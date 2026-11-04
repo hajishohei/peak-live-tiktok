@@ -1,6 +1,6 @@
 // Vercel Node 関数の (req, res) を Workers の Request/Response に変換する最小アダプター。
 // api/*.js が使う範囲だけ実装: req.method/query/body/headers/url, res.status/json/send/setHeader/writeHead/end/redirect/statusCode
-export async function vercelAdapter(handler, request) {
+export async function vercelAdapter(handler, request, extra = {}) {
   const url = new URL(request.url);
   const query = {};
   for (const [k, v] of url.searchParams) {
@@ -15,7 +15,7 @@ export async function vercelAdapter(handler, request) {
     else if (ct.includes("application/x-www-form-urlencoded")) body = Object.fromEntries(new URLSearchParams(text));
     else body = text;
   }
-  const req = { method: request.method, url: url.pathname + url.search, headers, query, body };
+  const req = { method: request.method, url: url.pathname + url.search, headers, query, body, ...extra };
 
   return new Promise((resolve, reject) => {
     const out = new Headers();
