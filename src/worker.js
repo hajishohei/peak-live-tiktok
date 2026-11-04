@@ -106,4 +106,9 @@ export default {
     }
     return env.ASSETS.fetch(request);
   },
+  // 毎日 23:50 JST にその日のTTS在庫を記録（旧「Peak stock history daily」タスクの置き換え。PC不要）
+  async scheduled(event, env, ctx) {
+    const res = await vercelAdapter(HANDLERS.stock_snapshot, new Request("https://cron.local/api/stock_snapshot"));
+    console.log("stock_snapshot", await res.text());
+  },
 };

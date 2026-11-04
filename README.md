@@ -117,3 +117,8 @@ Workers の環境変数（Secret）に追加:
 - 顧客台帳の内部構築（長期間の注文取得 → 顧客単位の累計でLTV/全期間リピート率/ロイヤル顧客ランキングを Shopify版同等に）
 - access_token の自動リフレッシュ（`/api/refresh` cron）
 - 配信・担当者タブ（シフト/ライブ予定の手入力×注文の時間帯マッチング）の移植
+
+## 定時実行
+
+- 在庫履歴: Workers の Cron（`wrangler.jsonc` の `triggers.crons`、毎日 23:50 JST）が `api/stock_snapshot` を呼び、KV `tts-stock-history.json` に追記する。
+- LIVE配信データ: Claude のスケジュールタスク（Chromeでセラーセンターを読む）が `api/live_sessions`（`COLLECT_KEY`）と `api/live_ingest`（`LIVE_INGEST_KEY`）に送る。

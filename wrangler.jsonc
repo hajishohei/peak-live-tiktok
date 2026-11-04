@@ -9,5 +9,7 @@
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
   // 旧 Vercel Blob の代わり（lib/blob.js から DATA として使う。カード不要の Workers KV）
   "kv_namespaces": [{ "binding": "DATA", "id": "de948672c13e4b4e8a1b1a435f667e79" }],
+  // 在庫履歴の日次記録（14:50 UTC = 23:50 JST）。src/worker.js の scheduled
+  "triggers": { "crons": ["50 14 * * *"] },
   "observability": { "enabled": true }
 }
