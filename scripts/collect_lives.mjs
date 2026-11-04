@@ -38,7 +38,7 @@ const PROFILE_DIR = path.join(__dirname, ".browser-profile");
 const LOG_PATH = path.join(__dirname, "collect_lives.log");
 const COLLECT_KEY = process.env.COLLECT_KEY || "";
 
-const DASH = process.env.DASH_URL || "https://peak-live-tiktok.vercel.app"; // Cloudflare移行後は新URLに書き換える（または DASH_URL で上書き）
+const DASH = process.env.DASH_URL || "https://peak-live-tiktok.harbor-live.workers.dev";
 const LIST_URL = "https://seller-jp.tiktok.com/compass/live-analysis/live-details?shop_region=JP";
 // 同じ画面が shop.tiktok.com にもあるが、そちらは別ホスト扱いでログインが乗らず
 // 公開用の宣伝ページが出てしまう。ログイン済みの seller-jp 側を使う。

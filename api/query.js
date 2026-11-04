@@ -680,7 +680,7 @@ function computeShippingCost(allOrders, sinceStr, untilStr, monthly) {
 
 // ===== 月次配信時間（harbor-ranking data.json から自動取得・手作業ゼロ） =====
 const BARBIE_ID = "7578682500742922257";
-const RANKING_URL = process.env.RANKING_URL || "https://harbor-ranking.vercel.app/data.json"; // 移行後は環境変数 RANKING_URL に新URLを設定
+const RANKING_URL = process.env.RANKING_URL || "https://harbor-ranking.harbor-live.workers.dev/data.json";
 let liveMonthlyMem = null;
 let RUNTIME_LIVE_MONTHLY = {};
 function hmsToSecQ(s) {
