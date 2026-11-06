@@ -12,6 +12,7 @@ import { SD_MASTER } from "../lib/sd_costs.js";
 import { LIVE_HOURS } from "../lib/live_hours.js";
 import { PURCHASES, PURCHASES_META } from "../lib/purchases.js";
 import { NAME_OVERRIDES } from "../lib/name_overrides.js";
+import { cohortAnalysis } from "../lib/cohort.js";
 
 const API_BASE = "https://open-api.tiktokglobalshop.com";
 
@@ -1432,6 +1433,13 @@ export default async function handler(req, res) {
     const light = !!(body && (body.light || body.mode === "drill"));
     const R = resolveRange(body && body.since, body && body.until);
     const allOrders = await getAllOrders(env, shop.cipher);
+    // 顧客の継続購入（リピート）分析：全期間の注文から、初回購入月ごとのリピート率・リピーターの購入頻度と金額を返す
+    if (mode === "cohort") {
+      let rf = {};
+      try { rf = (await getRefundsByOrder(env, shop.cipher)).byOrder || {}; } catch (e) { /* 返金が取れなくても集計は返す */ }
+      res.status(200).json(cohortAnalysis(allOrders, rf, { buyerKey, sellerAmount, exclude: EXCLUDE }));
+      return;
+    }
     if (!light) {
       let rk = { monthly: {}, daily: {} };
       try { rk = await fetchBarbieFromRanking(); } catch (e) {}
