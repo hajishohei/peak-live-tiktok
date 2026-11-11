@@ -382,6 +382,8 @@ async function getRefundsByOrder(env, shopCipher) {
       if (amt > 0) { if (oid) byOrder[oid] = (byOrder[oid] || 0) + amt; completed += 1; refundTotal += amt; }
     }
   } catch (e) { err = String((e && e.message) || e); }
+  // 締め済みの月の返金額（APIの400日を過ぎても引き続き差し引く）
+  try { const arch = await loadArchive(); for (const k of Object.keys(arch.refunds)) if (!(k in byOrder)) byOrder[k] = arch.refunds[k]; } catch (e) {}
   const refundOrders = Object.keys(byOrder).length;
   const val = { byOrder, completed, total, refundTotal, refundOrders, error: err };
   refundCache = { key: shopCipher, ts: Date.now(), val };
@@ -469,6 +471,77 @@ async function buildAndSaveSnapshot(env, shopCipher) {
   orderCache = null; // 次回再構築
   return { count: orders.length, builtAt: snapMem.builtAt };
 }
+// ===== 月次の確定データ（締めた月は400日を過ぎても消えない） =====
+// TikTokの注文APIとスナップショットは直近400日分しか持たないため、古い月から順に見えなくなっていく。
+// 月末から CLOSE_AFTER_DAYS 日が過ぎた月は「確定」として、その月の注文と返金額をKVに月ごとに保存する。
+// 以降その月は、APIの値ではなくこの確定データを正として集計する（再読み込みしても数字が変わらない）。
+const ARCHIVE_INDEX = "tts-orders-archive-index.json";
+const ARCHIVE_KEY = (m) => `tts-orders-archive-${m}.json`;
+const CLOSE_AFTER_DAYS = 20; // 返品・返金が出そろうまで待つ日数（例: 10月分は11月20日に締める）
+let archiveMem = null;
+function jstMonthOf(t) { return new Date(((Number(t) || 0) + 9 * 3600) * 1000).toISOString().slice(0, 7); }
+async function loadArchive() {
+  if (archiveMem && Date.now() - archiveMem._ts < ORDER_TTL_MS) return archiveMem;
+  const empty = { months: {}, orders: [], refunds: {}, _ts: Date.now() };
+  if (!blobConfigured()) return empty;
+  try {
+    const { get } = await import("../lib/blob.js");
+    const ri = await get(ARCHIVE_INDEX);
+    if (!ri || !ri.stream) { archiveMem = empty; return empty; }
+    const idx = JSON.parse(await new Response(ri.stream).text());
+    const months = idx.months || {};
+    const orders = [], refunds = {};
+    for (const m of Object.keys(months).sort()) {
+      const r = await get(ARCHIVE_KEY(m));
+      if (!r || !r.stream) continue;
+      const j = JSON.parse(await new Response(r.stream).text());
+      for (const o of j.orders || []) orders.push(o);
+      Object.assign(refunds, j.refunds || {});
+    }
+    archiveMem = { months, orders, refunds, _ts: Date.now() };
+    return archiveMem;
+  } catch (e) { return empty; }
+}
+// 締め処理。まだ締めていない月のうち、月末からCLOSE_AFTER_DAYS日が過ぎた月を保存する。
+// 返金APIの取得に失敗しているときは呼ばない（返金0円のまま確定してしまうため）。
+async function closeMonths(allOrders, refundByOrder) {
+  if (!blobConfigured()) return { ok: false, error: "KV未設定" };
+  const arch = await loadArchive();
+  const now = Math.floor(Date.now() / 1000);
+  const byMonth = {};
+  for (const o of allOrders) { const m = jstMonthOf(o.create_time); (byMonth[m] = byMonth[m] || []).push(o); }
+  const months = { ...arch.months };
+  const closed = [];
+  const { put } = await import("../lib/blob.js");
+  const dataStart = Object.keys(byMonth).sort()[0];
+  for (const m of Object.keys(byMonth).sort()) {
+    if (months[m]) continue;
+    const [y, mo] = m.split("-").map(Number);
+    const monthEnd = Date.UTC(y, mo, 1) / 1000 - 9 * 3600; // 翌月1日 0時（日本時間）
+    if (now < monthEnd + CLOSE_AFTER_DAYS * 86400) continue;
+    const orders = byMonth[m];
+    const refunds = {};
+    let sales = 0, valid = 0, firstT = Infinity;
+    for (const o of orders) {
+      const rf = refundByOrder[o.id] || 0;
+      if (rf > 0) refunds[o.id] = rf;
+      firstT = Math.min(firstT, Number(o.create_time) || Infinity);
+      if (EXCLUDE.has(o.status || o.order_status || "")) continue;
+      const sa = sellerAmount(o);
+      sales += Math.max(0, sa - Math.min(rf, sa)); valid++;
+    }
+    await put(ARCHIVE_KEY(m), JSON.stringify({ month: m, closedAt: Date.now(), orders, refunds }));
+    const firstDay = new Date((firstT + 9 * 3600) * 1000).toISOString().slice(0, 10);
+    months[m] = { closedAt: Date.now(), orders: orders.length, validOrders: valid, sales: Math.round(sales), firstOrderDate: firstDay, partial: m === dataStart && firstDay.slice(8) !== "01" };
+    closed.push(m);
+  }
+  if (closed.length) {
+    await put(ARCHIVE_INDEX, JSON.stringify({ updated: Date.now(), closeAfterDays: CLOSE_AFTER_DAYS, months }));
+    archiveMem = null; orderCache = null;
+  }
+  return { ok: true, closed, months };
+}
+
 // ===== 日次配信時間（Blob・HarboRボット/手動から追記） =====
 const LIVE_DAILY_PATH = "tts-live-daily.json";
 let liveDailyMem = null;
@@ -743,13 +816,18 @@ async function getAllOrders(env, shopCipher) {
   const map = new Map();
   for (const o of base) map.set(o.id, o);
   for (const o of live) map.set(o.id, o); // 直近が優先（最新ステータス反映）
-  const orders = [...map.values()];
+  let orders = [...map.values()];
+  // 締め済みの月は確定データを正とする（APIやスナップショット側の値では上書きしない）。
+  // これで400日を過ぎてAPIから消えた月も、ダッシュボードに残り続ける。
+  const arch = await loadArchive();
+  const archivedMonths = new Set(Object.keys(arch.months));
+  if (archivedMonths.size) orders = orders.filter((o) => !archivedMonths.has(jstMonthOf(o.create_time))).concat(arch.orders);
   // 自動ロール: スナップショットがあり基準日が6時間以上前なら、合体結果を保存して基準日を今に前進
   // （次回は前回開いた時からの差分≒1日分だけ取得すればよくなり高速化）
   if (snap && snap.orders && snap.orders.length && (now - snap.cutoffTs) > ROLL_THRESHOLD_SEC) {
     try {
       const keepFrom = now - LOOKBACK_DAYS * 24 * 3600;
-      const trimmed = orders.filter((o) => (Number(o.create_time) || 0) >= keepFrom);
+      const trimmed = orders.filter((o) => (Number(o.create_time) || 0) >= keepFrom && !archivedMonths.has(jstMonthOf(o.create_time)));
       await saveSnapshotData({ builtAt: snap.builtAt, cutoffTs: now, orders: trimmed });
     } catch (e) { /* ロール失敗は無視（次回再試行） */ }
   }
@@ -1433,6 +1511,14 @@ export default async function handler(req, res) {
     const light = !!(body && (body.light || body.mode === "drill"));
     const R = resolveRange(body && body.since, body && body.until);
     const allOrders = await getAllOrders(env, shop.cipher);
+    // 月次の締め（確定データの保存）と、締め済みの月の一覧
+    if (mode === "close_months" || mode === "archive_status") {
+      if (mode === "archive_status") { const a = await loadArchive(); res.status(200).json({ ok: true, closeAfterDays: CLOSE_AFTER_DAYS, months: a.months }); return; }
+      const rf = await getRefundsByOrder(env, shop.cipher);
+      if (rf.error) { res.status(200).json({ ok: false, error: "返金データを取得できなかったため締めを見送りました: " + rf.error }); return; }
+      res.status(200).json(await closeMonths(allOrders, rf.byOrder));
+      return;
+    }
     // 顧客の継続購入（リピート）分析：全期間の注文から、初回購入月ごとのリピート率・リピーターの購入頻度と金額を返す
     if (mode === "cohort") {
       let rf = {};
@@ -1457,6 +1543,7 @@ export default async function handler(req, res) {
       const cached = peekRefundCache(shop.cipher);
       if (cached) { refunds = cached; refundsApplied = true; }
     }
+    if (!light && refundsApplied && !refunds.error) { try { await closeMonths(allOrders, refunds.byOrder); } catch (err) { /* 締め失敗は表示に影響させない */ } }
     const agg = aggregate(allOrders, R.ge, R.lt, refunds.byOrder);
     // agg.returns は選択期間の注文に紐づく返金（aggregate内で算出）。全期間の合計は参考情報として保持。
     agg.refundInfo = { completed: refunds.completed, total: refunds.total, allTimeAmount: refunds.refundTotal || 0, allTimeOrders: refunds.refundOrders || 0, error: refunds.error, refundsApplied };

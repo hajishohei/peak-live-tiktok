@@ -110,5 +110,10 @@ export default {
   async scheduled(event, env, ctx) {
     const res = await vercelAdapter(HANDLERS.stock_snapshot, new Request("https://cron.local/api/stock_snapshot"));
     console.log("stock_snapshot", await res.text());
+    // 月次の締め：月末から20日を過ぎた月の注文・返金を確定データとして保存（400日を過ぎても残す）
+    try {
+      const r2 = await vercelAdapter(HANDLERS.query, new Request("https://cron.local/api/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "close_months" }) }));
+      console.log("close_months", (await r2.text()).slice(0, 300));
+    } catch (e) { console.log("close_months failed", String(e)); }
   },
 };
