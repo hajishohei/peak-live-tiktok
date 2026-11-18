@@ -13,7 +13,7 @@ import { LIVE_HOURS } from "../lib/live_hours.js";
 import { PURCHASES, PURCHASES_META } from "../lib/purchases.js";
 import { NAME_OVERRIDES } from "../lib/name_overrides.js";
 import { cohortAnalysis } from "../lib/cohort.js";
-import { computeForecast, isMicalleProduct } from "../lib/forecast.js";
+import { computeForecast, computeReview, snapshotOf, isMicalleProduct, mergeSales } from "../lib/forecast.js";
 
 const API_BASE = "https://open-api.tiktokglobalshop.com";
 
@@ -1513,7 +1513,7 @@ export default async function handler(req, res) {
     const R = resolveRange(body && body.since, body && body.until);
     const allOrders = await getAllOrders(env, shop.cipher);
     // 今月の売上着地予想（MICALLE商品と通常商品を分けて計算）と、その設定（トクトク日程・MICALLE月）の保存
-    if (mode === "forecast" || mode === "forecast_config") {
+    if (mode === "forecast" || mode === "forecast_config" || mode === "forecast_snapshot" || mode === "forecast_review") {
       const FC_PATH = "tts-forecast-config.json";
       const { get, put } = await import("../lib/blob.js");
       let cfg = {};
@@ -1521,13 +1521,15 @@ export default async function handler(req, res) {
       if (mode === "forecast_config") {
         const m = String((body && body.month) || "");
         if (!/^\d{4}-\d{2}$/.test(m)) { res.status(200).json({ ok: false, error: "month は YYYY-MM で指定してください" }); return; }
-        cfg.sales = cfg.sales || {}; cfg.micalle = cfg.micalle || {};
+        cfg.sales = cfg.sales || {}; cfg.micallePeriods = cfg.micallePeriods || {};
         const sl = body.sale;
         if (sl === null) cfg.sales[m] = null;
         else if (sl && /^\d{4}-\d{2}-\d{2}$/.test(sl.start) && /^\d{4}-\d{2}-\d{2}$/.test(sl.end) && sl.start <= sl.end) cfg.sales[m] = { start: sl.start, end: sl.end, kind: sl.kind === "thanks" ? "thanks" : "sale" };
         else if (sl !== undefined) { res.status(200).json({ ok: false, error: "トクトク期間の開始日・終了日を正しく入れてください" }); return; }
-        if (body.micalle === true || body.micalle === false) cfg.micalle[m] = body.micalle;
-        else if (body.micalle === "auto") delete cfg.micalle[m];
+        const mp = body.micalle;
+        if (mp === null) cfg.micallePeriods[m] = null;
+        else if (mp && /^\d{4}-\d{2}-\d{2}$/.test(mp.start) && /^\d{4}-\d{2}-\d{2}$/.test(mp.end) && mp.start <= mp.end) cfg.micallePeriods[m] = { start: mp.start, end: mp.end };
+        else if (mp !== undefined) { res.status(200).json({ ok: false, error: "MICALLE期間の開始日・終了日を正しく入れてください" }); return; }
         await put(FC_PATH, JSON.stringify(cfg));
         res.status(200).json({ ok: true, cfg });
         return;
@@ -1548,12 +1550,28 @@ export default async function handler(req, res) {
         mic[d] = (mic[d] || 0) + amt * share;
         core[d] = (core[d] || 0) + amt * (1 - share);
       }
-      // 削除した日程（null）は既定値から外す
-      const sales = {}; for (const [k, v] of Object.entries(cfg.sales || {})) sales[k] = v;
+
       const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
-      const month = /^\d{4}-\d{2}$/.test(String(body && body.month)) ? body.month : today.slice(0, 7);
-      const fc = computeForecast({ core, mic, cfg: { sales, micalle: cfg.micalle || {}, dataStart: first || today }, today, month });
-      res.status(200).json({ ...fc, refundError: rf.error || null });
+      const month = today.slice(0, 7); // 予想は当月のみ
+      const fc = computeForecast({ core, mic, cfg: { sales: cfg.sales || {}, micallePeriods: cfg.micallePeriods || {}, dataStart: first || today }, today, month });
+      // 毎日の予想を保存（その日の最初の1回。月末の予実振り返りに使う）
+      const LOG_PATH = "tts-forecast-log.json";
+      let log = { snaps: [] };
+      try { const r = await get(LOG_PATH); if (r && r.stream) log = JSON.parse(await new Response(r.stream).text()); } catch (e) {}
+      log.snaps = log.snaps || [];
+      if (!rf.error && fc.ok && !log.snaps.some((x) => x.date === today)) {
+        log.snaps.push(snapshotOf(fc));
+        log.snaps = log.snaps.slice(-500);
+        try { await put(LOG_PATH, JSON.stringify(log)); } catch (e) {}
+      }
+      const mergedSales = mergeSales(cfg);
+      if (mode === "forecast_snapshot") { res.status(200).json({ ok: true, saved: today, snapshots: log.snaps.length }); return; }
+      const [ty, tm] = month.split("-").map(Number);
+      const prev = new Date(Date.UTC(ty, tm - 2, 1)).toISOString().slice(0, 7);
+      const reviewMonth = mode === "forecast_review" && /^\d{4}-\d{2}$/.test(String(body && body.month)) ? body.month : prev;
+      const review = log.snaps.some((x) => x.date.slice(0, 7) === reviewMonth) ? computeReview({ core, mic, month: reviewMonth, snapshots: log.snaps, sales: mergedSales }) : null;
+      if (mode === "forecast_review") { res.status(200).json(review || { ok: false, error: reviewMonth + " の予想記録がありません" }); return; }
+      res.status(200).json({ ...fc, review, refundError: rf.error || null });
       return;
     }
     // 月次の締め（確定データの保存）と、締め済みの月の一覧

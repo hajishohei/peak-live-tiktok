@@ -282,19 +282,23 @@ th { top:var(--stickyTop,0px); }
         <div class="kpi"><div class="label">楽観</div><div class="val" id="fcOpt">—</div><div class="delta" id="fcOptD"></div></div>
       </div>
       <div id="fcBasis" style="font-size:13px;line-height:1.8"></div>
-      <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;font-weight:700">予想の前提を変える（トクトク期間・MICALLE）</summary>
+      <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;font-weight:700">予想の前提を変える（トクトク期間・MICALLE期間）</summary>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:13px">
-          <label>対象月 <input type="month" id="fcMonth"></label>
+          <label>設定する月 <input type="month" id="fcMonth"></label>
           <label>トクトク開始 <input type="date" id="fcStart"></label>
           <label>終了 <input type="date" id="fcEnd"></label>
           <label>種類 <select id="fcKind"><option value="sale">トクトクSALE</option><option value="thanks">トクトク大感謝祭</option></select></label>
-          <label>MICALLE <select id="fcMic"><option value="auto">自動判定</option><option value="true">売る月</option><option value="false">売らない月</option></select></label>
+          <label>MICALLE開始 <input type="date" id="fcMs"></label>
+          <label>終了 <input type="date" id="fcMe"></label>
           <button class="mini primary" id="fcSave">保存して計算し直す</button>
           <button class="mini" id="fcNoSale">この月はトクトクなし</button>
+          <button class="mini" id="fcNoMic">この月はMICALLEなし</button>
           <span class="progress" id="fcMsg"></span>
         </div>
       </details>
+      <details style="margin-top:6px"><summary style="cursor:pointer;font-size:13px;font-weight:700">予想の計算方法</summary><div id="fcLogic" style="margin-top:8px;font-size:13px;line-height:1.9"></div></details>
       <details style="margin-top:6px"><summary style="cursor:pointer;font-size:13px;font-weight:700">計算に使った過去の実績</summary><div id="fcHist" style="margin-top:8px"></div></details>
+      <details style="margin-top:6px" id="fcRevWrap"><summary style="cursor:pointer;font-size:13px;font-weight:700" id="fcRevTitle">先月の予実振り返り</summary><div id="fcRev" style="margin-top:8px;font-size:13px"></div></details>
     </div>
     <div class="kpis" id="kpis">
       <div class="kpi"><div class="label">売上</div><div class="val" id="kpiSales">—</div><div class="delta" id="kpiSalesD">返金完了分を差し引いた純額</div></div>
@@ -2995,10 +2999,12 @@ function lvBoot(){
 
 /* ===== 今月の売上着地予想（/api/query mode:forecast） ===== */
 let fcData=null;
-async function fcLoad(month){
+async function fcLoad(retry){
   const desc=document.getElementById("fcDesc"); if(!desc) return;
   try{
-    const r=await fetch("/api/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"forecast",month:month||undefined})}).then(x=>x.json());
+    const r=await fetch("/api/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"forecast"})}).then(x=>x.json());
+    // 画面を開いた直後は他の集計と同時にTikTokの認証を更新するため、1回だけ失敗することがある → 少し待って取り直す
+    if(!r.ok && !retry){ desc.textContent="計算中…"; setTimeout(()=>fcLoad(true),4000); return; }
     if(!r.ok){ desc.textContent="予想を計算できませんでした: "+(r.error||""); return; }
     fcData=r; fcRender();
   }catch(e){ desc.textContent="予想を計算できませんでした: "+(e&&e.message||e); }
@@ -3006,39 +3012,55 @@ async function fcLoad(month){
 function fcRender(){
   const r=fcData, el=id=>document.getElementById(id), pc=v=>Math.round(v*100)+"%";
   const s=r.scenarios, sale=r.sale;
-  el("fcDesc").textContent=`${r.month.replace("-","年")}月：${r.daysPast}日経過・残り${r.daysRest}日（うちトクトク${r.restSale}日）。MICALLEは「${r.micalle?"売る月":"売らない月"}」${r.micalleAuto?"（自動判定）":"（手動設定）"}として計算しています。`;
+  el("fcDesc").textContent=`${r.month.replace("-","年")}月：${r.daysPast}日経過・残り${r.daysRest}日（うちトクトク${r.restSale}日）。${r.micPeriod?`MICALLE期間 ${r.micPeriod.start.slice(5).replace("-","/")}〜${r.micPeriod.end.slice(5).replace("-","/")} あり`:"MICALLE期間なし"}として計算しています。`;
   el("fcActual").textContent=yk(r.actual); el("fcActualD").textContent=`通常商品 ${yk(r.coreActual)}／MICALLE ${yk(r.micActual)}`;
   for(const [k,id] of [["pessimistic","fcPes"],["standard","fcStd"],["optimistic","fcOpt"]]){
     el(id).textContent=yk(s[k].total);
-    el(id+"D").textContent=`トクトク上乗せ ${yk(s[k].saleExtra)}（効果${pc(s[k].factor)}）`+(r.micalle?`／MICALLE ${yk(s[k].micalle)}`:"");
+    el(id+"D").textContent=`トクトク上乗せ ${yk(s[k].saleExtra)}（効果${pc(s[k].factor)}）`+(r.micalle?`／MICALLE見込み ${yk(s[k].micAdd)}`:"");
   }
   const lines=[];
   lines.push(`・通常日の1日平均（通常商品）：<b>${yen(r.baseline)}</b>（${r.baselineFrom}・${r.baselineDays}日分）`);
-  if(sale) lines.push(`・トクトク：<b>${sale.start.slice(5).replace("-","/")}〜${sale.end.slice(5).replace("-","/")}（${sale.days}日間）</b>${sale.long?"。いつもより長いため、1日あたりの効果を悲観70%／標準85%／楽観100%に下げています":"。いつもの長さのため、1日あたりの効果を悲観85%／標準100%／楽観115%で見ています"}`);
+  if(sale) lines.push(`・トクトク：<b>${sale.start.slice(5).replace("-","/")}〜${sale.end.slice(5).replace("-","/")}（${sale.days}日間）</b>${sale.long?`。8日以上の長い回なので、1日あたりの効果を悲観${Math.round(s.pessimistic.factor*100)}%／標準${Math.round(s.standard.factor*100)}%／楽観${Math.round(s.optimistic.factor*100)}%で見ています（${r.longFactorFromData?"過去の長い回の実績から計算":"長い回の実績がないため仮の値"}）`:"。7日以内の回なので、1日あたりの効果を悲観85%／標準100%／楽観115%で見ています"}`);
   else lines.push("・今月はトクトクなしとして計算しています");
-  lines.push(`・トクトク日の上乗せ率（通常商品・過去${r.saleHistory.length}回の平均）：<b>+${pc(r.uplift)}</b>。MICALLEの売上は除いて測っています`);
-  if(r.micalle) lines.push(`・MICALLE：過去のMICALLE月（${r.micHistory.map(h=>h.month.slice(5)+"月").join("・")||"なし"}）の販売額を、少ない月／平均／多い月として悲観・標準・楽観に使っています`);
+  lines.push(`・トクトク日の上乗せ率（通常商品・7日以内の回の中央値）：<b>+${pc(r.uplift)}</b>。MICALLEの売上は除いて測っています`);
+  if(r.micalle) lines.push(`・MICALLE：過去のMICALLE期間（${r.micHistory.length}回）の売上の、少ない回／平均／多い回を悲観・標準・楽観に使っています`);
   if(r.refundError) lines.push(`<span style="color:#b3261e">・返金データを取得できなかったため、返金を差し引けていません</span>`);
   el("fcBasis").innerHTML=lines.join("<br>");
   const th='style="text-align:right"';
-  el("fcHist").innerHTML=`<table><thead><tr><th>月</th><th>トクトク期間</th><th ${th}>日数</th><th ${th}>トクトク日の1日平均</th><th ${th}>通常日の1日平均</th><th ${th}>上乗せ率</th></tr></thead><tbody>${r.saleHistory.map(h=>`<tr><td>${h.month}</td><td>${h.start.slice(5)}〜${h.end.slice(5)}</td><td>${h.days}日</td><td>${yen(h.tokAvg)}</td><td>${yen(h.nonAvg)}</td><td>+${pc(h.uplift)}</td></tr>`).join("")}</tbody></table>
+  el("fcHist").innerHTML=`<table><thead><tr><th>月</th><th>トクトク期間</th><th ${th}>日数</th><th ${th}>トクトク日の1日平均</th><th ${th}>通常日の1日平均</th><th ${th}>上乗せ率</th></tr></thead><tbody>${r.saleHistory.map(h=>`<tr><td>${h.month}${h.long?'<br><span class="muted">長い回</span>':''}</td><td>${h.start.slice(5)}〜${h.end.slice(5)}</td><td>${h.days}日</td><td>${yen(h.tokAvg)}</td><td>${yen(h.nonAvg)}</td><td>+${pc(h.uplift)}</td></tr>`).join("")}</tbody></table>
   <p class="note" style="margin:6px 0">金額は通常商品（MICALLE以外）の売上です。</p>
-  <table><thead><tr><th>MICALLEを売った月</th><th ${th}>MICALLEの売上</th><th ${th}>月の売上に占める割合</th></tr></thead><tbody>${r.micHistory.map(h=>`<tr><td>${h.month}</td><td>${yen(h.sales)}</td><td>${h.share}%</td></tr>`).join("")||'<tr><td colspan="3" class="muted">なし</td></tr>'}</tbody></table>`;
+  <table><thead><tr><th>MICALLE期間</th><th ${th}>MICALLE商品の売上（期間＋7日後まで）</th></tr></thead><tbody>${r.micHistory.map(h=>`<tr><td>${h.start}〜${h.end.slice(5)}</td><td>${yen(h.sales)}</td></tr>`).join("")||'<tr><td colspan="2" class="muted">なし</td></tr>'}</tbody></table>`;
+  const sf=s.standard.factor, up=r.uplift;
+  el("fcLogic").innerHTML=`着地予想 ＝ ①昨日までの実績 ＋ ②残り日数 × 通常日の1日平均 ＋ ③トクトクの上乗せ ＋ ④MICALLE<br>
+  ① ${yen(r.actual)}（通常商品 ${yen(r.coreActual)}＋MICALLE ${yen(r.micActual)}）<br>
+  ② 残り${r.daysRest}日 × ${yen(r.baseline)} ＝ ${yen(r.baseline*r.daysRest)}　※通常日の1日平均は${r.baselineFrom}から。MICALLE商品は除く<br>
+  ③ 残りのトクトク${r.restSale}日 × ${yen(r.baseline)} × 上乗せ率${Math.round(up*100)}% × 期間補正（悲観${Math.round(s.pessimistic.factor*100)}%／標準${Math.round(sf*100)}%／楽観${Math.round(s.optimistic.factor*100)}%）<br>
+  　上乗せ率 … 過去のトクトクで、通常商品の「トクトク日の1日平均 ÷ 通常日の1日平均 − 1」の中央値（参加していない回など極端な値に引っぱられないように）<br>
+  　期間補正 … 7日以内の回は85%／100%／115%。8日以上の長い回は「過去の長い回の上乗せ率 ÷ 7日以内の回の中央値」を標準にして±15%（今の標準 ${Math.round(r.longStd*100)}%）<br>
+  ④ MICALLE ＝ 今月すでに売れた分 ＋ ${r.micalle?"今月始まるMICALLE期間の残りの見込み（過去のMICALLE期間の売上：少ない回／平均／多い回。期間の7日後までの売上を含む）":"今月はMICALLE期間がないので見込みは足さない"}<br>
+  売上はダッシュボードと同じ定義（顧客支払額＋TikTok負担クーポン − 返金、キャンセル・未払いは除く）。毎日の実績で自動で計算し直します。`;
+  const rv=r.review;
+  el("fcRevWrap").style.display=rv?"":"none";
+  if(rv){
+    el("fcRevTitle").textContent=`${rv.month.replace("-","年")}月の予実振り返り（実績 ${yk(rv.actual)}）`;
+    el("fcRev").innerHTML=`<table><thead><tr><th>予想した日</th><th style="text-align:right">予想（標準）</th><th style="text-align:right">ズレ</th><th style="text-align:right">①通常日のペース</th><th style="text-align:right">②トクトク</th><th style="text-align:right">③MICALLE</th><th>主な理由</th></tr></thead><tbody>${rv.points.map(p=>`<tr><td>${p.label}<br><span class="muted">${p.date.slice(5)}</span></td><td>${yen(p.forecast)}<br><span class="muted">${p.withinRange?"悲観〜楽観の範囲内":"範囲外"}</span></td><td><b>${p.diff>=0?"+":""}${yen(p.diff)}</b><br><span class="muted">${p.diffRate>=0?"+":""}${p.diffRate}%</span></td><td>${yen(p.pace)}</td><td>${yen(p.sale)}</td><td>${yen(p.micalle)}</td><td style="white-space:normal;text-align:left">${p.reasons.join("<br>")}</td></tr>`).join("")}</tbody></table>
+    <p class="note" style="margin:6px 0">ズレ ＝ 実績 − 予想。①〜③を足すとズレになります（予想した日より後の分だけで比べています）。実際の通常日の1日平均 ${yen(rv.normalAvg)}／実際のトクトク上乗せ率 ${rv.actualUplift==null?"—":Math.round(rv.actualUplift*100)+"%"}／MICALLE ${yen(rv.micActual)}</p>`;
+  }
   el("fcMonth").value=r.month;
   if(sale){ el("fcStart").value=sale.start; el("fcEnd").value=sale.end; el("fcKind").value=sale.kind; } else { el("fcStart").value=""; el("fcEnd").value=""; }
-  el("fcMic").value=r.micalleAuto?"auto":String(r.micalle);
+  el("fcMs").value=r.micPeriod?r.micPeriod.start:""; el("fcMe").value=r.micPeriod?r.micPeriod.end:"";
 }
-async function fcSaveCfg(sale){
+async function fcSaveCfg(sale,micalle){
   const el=id=>document.getElementById(id), msg=el("fcMsg"), month=el("fcMonth").value;
-  const mic=el("fcMic").value; msg.textContent="保存中…";
-  const r=await fetch("/api/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"forecast_config",month,sale,micalle:mic==="auto"?"auto":mic==="true"})}).then(x=>x.json());
+  msg.textContent="保存中…";
+  const r=await fetch("/api/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"forecast_config",month,sale,micalle})}).then(x=>x.json());
   if(!r.ok){ msg.textContent="⚠ "+(r.error||"保存できませんでした"); return; }
-  msg.textContent="保存しました。計算し直しています…"; await fcLoad(month); msg.textContent="保存しました";
+  msg.textContent="保存しました。計算し直しています…"; await fcLoad(); msg.textContent=`保存しました（${month.replace("-","年")}月の前提）`;
 }
 (function(){
-  const b=document.getElementById("fcSave"); if(b) b.addEventListener("click",()=>{ const g=id=>document.getElementById(id).value; const st=g("fcStart"), en=g("fcEnd"); fcSaveCfg(st&&en?{start:st,end:en,kind:g("fcKind")}:undefined); });
+  const b=document.getElementById("fcSave"); if(b) b.addEventListener("click",()=>{ const g=id=>document.getElementById(id).value; const st=g("fcStart"), en=g("fcEnd"); const ms=g("fcMs"), me=g("fcMe"); fcSaveCfg(st&&en?{start:st,end:en,kind:g("fcKind")}:undefined, ms&&me?{start:ms,end:me}:undefined); });
   const n=document.getElementById("fcNoSale"); if(n) n.addEventListener("click",()=>fcSaveCfg(null));
-  const m=document.getElementById("fcMonth"); if(m) m.addEventListener("change",()=>fcLoad(m.value));
+  const nm=document.getElementById("fcNoMic"); if(nm) nm.addEventListener("click",()=>fcSaveCfg(undefined,null));
 })();
 loadAll();
 fcLoad();

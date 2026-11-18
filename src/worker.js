@@ -115,5 +115,10 @@ export default {
       const r2 = await vercelAdapter(HANDLERS.query, new Request("https://cron.local/api/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "close_months" }) }));
       console.log("close_months", (await r2.text()).slice(0, 300));
     } catch (e) { console.log("close_months failed", String(e)); }
+    // その日の売上着地予想を記録（月末の予実振り返り用。画面を開かない日でも残す）
+    try {
+      const r3 = await vercelAdapter(HANDLERS.query, new Request("https://cron.local/api/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "forecast_snapshot" }) }));
+      console.log("forecast_snapshot", (await r3.text()).slice(0, 200));
+    } catch (e) { console.log("forecast_snapshot failed", String(e)); }
   },
 };
