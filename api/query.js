@@ -13,6 +13,7 @@ import { LIVE_HOURS } from "../lib/live_hours.js";
 import { PURCHASES, PURCHASES_META } from "../lib/purchases.js";
 import { NAME_OVERRIDES } from "../lib/name_overrides.js";
 import { cohortAnalysis } from "../lib/cohort.js";
+import { computeForecast, isMicalleProduct } from "../lib/forecast.js";
 
 const API_BASE = "https://open-api.tiktokglobalshop.com";
 
@@ -1511,6 +1512,50 @@ export default async function handler(req, res) {
     const light = !!(body && (body.light || body.mode === "drill"));
     const R = resolveRange(body && body.since, body && body.until);
     const allOrders = await getAllOrders(env, shop.cipher);
+    // 今月の売上着地予想（MICALLE商品と通常商品を分けて計算）と、その設定（トクトク日程・MICALLE月）の保存
+    if (mode === "forecast" || mode === "forecast_config") {
+      const FC_PATH = "tts-forecast-config.json";
+      const { get, put } = await import("../lib/blob.js");
+      let cfg = {};
+      try { const r = await get(FC_PATH); if (r && r.stream) cfg = JSON.parse(await new Response(r.stream).text()); } catch (e) {}
+      if (mode === "forecast_config") {
+        const m = String((body && body.month) || "");
+        if (!/^\d{4}-\d{2}$/.test(m)) { res.status(200).json({ ok: false, error: "month は YYYY-MM で指定してください" }); return; }
+        cfg.sales = cfg.sales || {}; cfg.micalle = cfg.micalle || {};
+        const sl = body.sale;
+        if (sl === null) cfg.sales[m] = null;
+        else if (sl && /^\d{4}-\d{2}-\d{2}$/.test(sl.start) && /^\d{4}-\d{2}-\d{2}$/.test(sl.end) && sl.start <= sl.end) cfg.sales[m] = { start: sl.start, end: sl.end, kind: sl.kind === "thanks" ? "thanks" : "sale" };
+        else if (sl !== undefined) { res.status(200).json({ ok: false, error: "トクトク期間の開始日・終了日を正しく入れてください" }); return; }
+        if (body.micalle === true || body.micalle === false) cfg.micalle[m] = body.micalle;
+        else if (body.micalle === "auto") delete cfg.micalle[m];
+        await put(FC_PATH, JSON.stringify(cfg));
+        res.status(200).json({ ok: true, cfg });
+        return;
+      }
+      const rf = await getRefundsByOrder(env, shop.cipher);
+      const core = {}, mic = {};
+      let first = null;
+      for (const o of allOrders) {
+        if (EXCLUDE.has(o.status || o.order_status || "")) continue;
+        const t = Number(o.create_time) || 0; if (!t) continue;
+        const d = new Date((t + 9 * 3600) * 1000).toISOString().slice(0, 10);
+        if (!first || d < first) first = d;
+        const sa = sellerAmount(o);
+        const amt = Math.max(0, sa - Math.min(rf.byOrder[o.id] || 0, sa));
+        const li = o.line_items || [];
+        const tot = li.reduce((s, x) => s + (Number(x.sale_price) || 0), 0);
+        const share = tot ? li.filter((x) => isMicalleProduct(x.product_name)).reduce((s, x) => s + (Number(x.sale_price) || 0), 0) / tot : 0;
+        mic[d] = (mic[d] || 0) + amt * share;
+        core[d] = (core[d] || 0) + amt * (1 - share);
+      }
+      // 削除した日程（null）は既定値から外す
+      const sales = {}; for (const [k, v] of Object.entries(cfg.sales || {})) sales[k] = v;
+      const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+      const month = /^\d{4}-\d{2}$/.test(String(body && body.month)) ? body.month : today.slice(0, 7);
+      const fc = computeForecast({ core, mic, cfg: { sales, micalle: cfg.micalle || {}, dataStart: first || today }, today, month });
+      res.status(200).json({ ...fc, refundError: rf.error || null });
+      return;
+    }
     // 月次の締め（確定データの保存）と、締め済みの月の一覧
     if (mode === "close_months" || mode === "archive_status") {
       if (mode === "archive_status") { const a = await loadArchive(); res.status(200).json({ ok: true, closeAfterDays: CLOSE_AFTER_DAYS, months: a.months }); return; }
